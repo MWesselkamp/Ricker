@@ -45,13 +45,27 @@ class Ricker:
 
         return(N, r)
 
-    def model(self, x, r, k = 1, stoch = False):
-
-        if not stoch:
-            N = x * np.exp(r * (1 - x / k))
+    def model(self, N, r, k = 1):
+        """
+        The model, one time step. Not recursive.
+        :param N: Population size at time t.
+        :param r: growth rate
+        :param k: carrying capacity
+        :return: Population size at time t+1
+        """
+        N = N * np.exp(r * (1 - N / k))
         return(N)
 
     def model_iterate(self, x_init, r, iterations, k=1):
+
+        """
+
+        :param x_init:
+        :param r:
+        :param iterations:
+        :param k:
+        :return:
+        """
 
         x = []
         x.append(x_init)
@@ -63,28 +77,29 @@ class Ricker:
 
         return(x)
 
-    def simulate(self, samples=10, iterations = 10, k=1):
+    def model_simulate(self, samples, iterations, k=1):
 
         """
-        Function that simulates population growth with the Ricker model.
-        NO STOCHASTICITY in the model considered.
-        :param samples: Number of parameter samples that will be drawn from the prior.
+        Function used to simulate a bunch of population growth time series with the Ricker model.
+        Creates class attribute r, that is a list with growth rates used for simulations. RENAME.
+        :param samples: Number of time series to generate. Refers to number of samples from specified prior.
         :param iterations: Number of time steps to simulate.
         :param k: Carrying capacity. Default to 1.
         :return: (array) simulated population growth at every sample of r.
         """
 
         self.r = []
-        NN = np.zeros((iterations + 1, samples))
+        simulations = np.zeros((iterations + 1, samples))
 
         for i in range(samples):
             pars = self.sample_from_priors()
-            NN[0, i] = pars[0]
+            simulations[0, i] = pars[0]
             r = pars[1]
             self.r.append(r)
             for j in np.arange(iterations):
-                NN[j + 1, i] = self.model(NN[j, i], r, k)
-        return NN
+                simulations[j + 1, i] = self.model(simulations[j, i], r, k)
+
+        return simulations
 
 
 

@@ -1,6 +1,8 @@
 
 import matplotlib.pyplot as plt
 import matplotlib
+import numpy as np
+
 matplotlib.use('module://backend_interagg')
 import seaborn as sns
 
@@ -14,7 +16,7 @@ import torch
 import pyro
 import pyro.distributions as dist
 from pyro.infer import MCMC, NUTS, HMC, SVI, Trace_ELBO
-from pyro.optim import Adam, ClippedAdam
+# from pyro.optim import Adam, ClippedAdam
 
 #=========================#
 # Simulate reference data #
@@ -40,9 +42,11 @@ def plot_growth(real_dynamics):
 real_train = real_dynamics[:30, :]
 real_test = real_dynamics[31:, :]
 
-#==============================#
-# Fit the model to 'real' data #
-#==============================#
+# Save to input folder.
+
+#====================#
+# Fit the model data #
+#====================#
 
 # Set up the model in Pyro
 def model_pyro(X, obs=None):
@@ -71,23 +75,25 @@ mcmc.run(X)
 
 mcmc.summary()
 mcmc.diagnostics()
-# Estimates for r_mean, r_sd.
 posterior_samples = mcmc.get_samples()
+
+# Save the model and the model fit, i.e. posterior distributions.
+# IDEA: Save posterior distributions in model class object.
 
 def plot_posterior(ps):
 
-    plt.hist(ps, bins=50)
-    plt.show()
-
-
-#=====================================#
-# Forecast with the fit model to test #
-#=====================================#
-
-# Ensemble forecast
+    """
+    Write a function, that displays posterior distributions.
+    Save plot to plots folder.
+    Move it to a visualizations script.
+    :param ps:
+    :return:
+    """
 
 
 # Press the green button in the gutter to run the script.
+# Produce results
+
 if __name__ == '__main__':
     plot_growth(real_dynamics)
 

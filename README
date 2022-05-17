@@ -13,6 +13,9 @@ We also define their 'true' uncertainties.
 With this, we simulate a set of time series, i.e. a set of observed populations.
 We plot these time series and then split it into a training and test set.
 
+Important decisions:
+- What does the reference data look like? Where do we have it from?
+
 #==============================#
 # Fit the model to 'real' data #
 #==============================#
