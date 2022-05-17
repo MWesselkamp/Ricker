@@ -1,0 +1,42 @@
+Determining the forecasting horizon of the Ricker model with selected approaches.
+
+Uncertainties considered in the forecasting system:
+- process/observation error (not distinguished!) (sigma)
+- parameter uncertainties (sd)
+
+#=========================#
+# Simulate reference data #
+#=========================#
+
+Here we specify the growth rate (r) and intial conditions (N0) of the 'true' time series.
+We also define their 'true' uncertainties.
+With this, we simulate a set of time series, i.e. a set of observed populations.
+We plot these time series and then split it into a training and test set.
+
+#==============================#
+# Fit the model to 'real' data #
+#==============================#
+
+Here, we want to infer the growth rate of a set of time series, that we assume descend from the same population
+from the data.
+We therefore make prior assumptions about the process/observation error (sigma).
+We also define a prior for the growth rate (mean) and its uncertainty (sd).
+We receive posterior distributions for parameters and process error, as well as a posterior
+predictive distribution for y.
+
+Important decisions:
+- Assumptions about the priors.
+- Constant or dynamic growth rate r.
+- Sampling algorithm.
+
+#=====================================#
+# Forecast with the fit model to test #
+#=====================================#
+
+We use these posterior distributions to forecast to the test data.
+
+Important decisions:
+- Metric to evaluate forecast.
+
+
+
