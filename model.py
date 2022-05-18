@@ -12,26 +12,30 @@ class Ricker:
                 NO (float): initial number of individuals in population.
         """
 
-    def set_prior_observation(self, mu, sigma = 0):
+        self.stoch = False
+
+    def set_priors(self, initial_conditions, parameters, process_error = None):
 
         """
-        Specify the normal distribution parameters.
+        Specify the uncertainties that should be propagated.
         So far for parameter r only. Distribution normal only.
         :param mu: mean of normal
         :param sigma: scale of normal
         """
 
-        self.mu = mu
-        self.sigma = sigma
+        self.N0_mean = initial_conditions['N0_mean']
+        self.N0_sd = initial_conditions['N0_sd']
 
-        return(mu, sigma)
+        self.k = parameters['k']
+        self.r_mean = parameters['r_mean']
+        self.r_sd = parameters['r_sd']
 
-    def set_prior_parameters(self, dict):
+        if not process_error is None:
+            self.mu = process_error['mu']
+            self.sigma = process_error['sigma']
+            self.stoch = True
 
-        self.r_mean = dict['r_mean']
-        self.r_sd = dict['r_sd']
-
-        return dict
+        #return(mu, sigma)
 
     def sample_from_priors(self):
 
@@ -40,12 +44,12 @@ class Ricker:
         So far only for r.
         :return: sample of r.
         """
-        N = np.random.normal(self.mu, self.sigma)
+        N = np.random.normal(self.N0_mean, self.N0_sd)
         r = np.random.normal(self.r_mean, self.r_sd)
 
         return(N, r)
 
-    def model(self, N, r, k = 1):
+    def model(self, N, r):
         """
         The model, one time step. Not recursive.
         :param N: Population size at time t.
@@ -53,10 +57,10 @@ class Ricker:
         :param k: carrying capacity
         :return: Population size at time t+1
         """
-        N = N * np.exp(r * (1 - N / k))
+        N = N * np.exp(r * (1 - N / self.k))
         return(N)
 
-    def model_iterate(self, x_init, r, iterations, k=1):
+    def model_iterate(self, N0, r, iterations):
 
         """
 
@@ -68,16 +72,16 @@ class Ricker:
         """
 
         x = []
-        x.append(x_init)
+        x.append(N0)
 
         for i in range(iterations):
-            x.append(x[i] * torch.exp(r * (1 - x[i] / k)))
+            x.append(x[i] * torch.exp(r * (1 - x[i] / self.k)))
 
         x = torch.tensor(x).float()
 
         return(x)
 
-    def model_simulate(self, samples, iterations, k=1):
+    def model_simulate(self, samples, iterations):
 
         """
         Function used to simulate a bunch of population growth time series with the Ricker model.
@@ -88,16 +92,26 @@ class Ricker:
         :return: (array) simulated population growth at every sample of r.
         """
 
-        self.r = []
+        self.r_samples = []
         simulations = np.zeros((iterations + 1, samples))
 
         for i in range(samples):
+
             pars = self.sample_from_priors()
-            simulations[0, i] = pars[0]
+
+            if self.stoch:
+                simulations[0, i] = np.random.normal(pars[0], self.sigma)
+            else:
+                simulations[0, i] = pars[0]
+
             r = pars[1]
-            self.r.append(r)
+            self.r_samples.append(r)
+
             for j in np.arange(iterations):
-                simulations[j + 1, i] = self.model(simulations[j, i], r, k)
+                if self.stoch:
+                    simulations[j + 1, i] = self.model(simulations[j, i], r)
+                else:
+                    simulations[j + 1, i] = np.random.normal(self.model(simulations[j, i], r), self.sigma)
 
         return simulations
 

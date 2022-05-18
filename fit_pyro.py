@@ -1,48 +1,16 @@
-
 import matplotlib.pyplot as plt
 import matplotlib
 import numpy as np
 
 matplotlib.use('module://backend_interagg')
-import seaborn as sns
-
-import sys
-import os
-sys.path.append(os.path.abspath("/Users/Marieke_Wesselkamp/PycharmProjects/Ricker/venv"))
 
 from model import Ricker
 
 import torch
 import pyro
 import pyro.distributions as dist
-from pyro.infer import MCMC, NUTS, HMC, SVI, Trace_ELBO
+from pyro.infer import MCMC, NUTS
 # from pyro.optim import Adam, ClippedAdam
-
-#=========================#
-# Simulate reference data #
-#=========================#
-
-r_real = 1.6
-sd_real = 0.01 # assume no uncertainty on observations.
-N0 = 0.8
-sigma = 0.05
-
-mod = Ricker() # Create class instance
-mod.set_prior_observation(mu = N0, sigma=sigma) # set prior for observation error
-mod.set_prior_parameters({'r_mean':r_real, 'r_sd':sd_real}) # set prior for parameters
-
-real_dynamics = mod.simulate(samples = 10, iterations = 45)
-
-def plot_growth(real_dynamics):
-
-    plt.plot(real_dynamics)
-    plt.show()
-
-# Split real dynamics into train and test.
-real_train = real_dynamics[:30, :]
-real_test = real_dynamics[31:, :]
-
-# Save to input folder.
 
 #====================#
 # Fit the model data #
@@ -91,10 +59,6 @@ def plot_posterior(ps):
     """
 
 
-# Press the green button in the gutter to run the script.
-# Produce results
 
-if __name__ == '__main__':
-    plot_growth(real_dynamics)
 
 

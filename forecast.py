@@ -28,5 +28,7 @@ for i in range(pops):
         forecasts[:,k] = mod.model_iterate(real_test[0,i], r_posterior[j], its-1)
         k += 1
 
+# Create a plot for forecasts. Save to folder plots. Move to viusalizations.
+
 if __name__ == '__main__':
     plt.plot(forecasts)
