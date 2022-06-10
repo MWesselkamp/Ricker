@@ -1,64 +1,42 @@
-import matplotlib.pyplot as plt
 import matplotlib
+matplotlib.use('module://backend_interagg')
+import model
+from vizualisations import plot_posterior
+from vizualisations import plot_trajectories
+import pickle
 import numpy as np
 
-matplotlib.use('module://backend_interagg')
+if __name__ == '__main__':
 
-from model import Ricker
+    r_real = 1.5
+    sd_real = 0.001
+    N0_mean = 0.8
+    N0_sd = 0
+    mu = 0
+    sigma = 0.005
 
-import torch
-import pyro
-import pyro.distributions as dist
-from pyro.infer import MCMC, NUTS
-# from pyro.optim import Adam, ClippedAdam
+    params = {'N0_mean': N0_mean, 'N0_sd': N0_sd, 'r_mean': r_real, 'r_sd': sd_real, 'k': 1}
 
-#====================#
-# Fit the model data #
-#====================#
+    x, trues = model.ricker_simulate(1, 50, params, stoch = False)
+    np.savetxt("data/realdynamics.csv", x, delimiter=',')
 
-# Set up the model in Pyro
-def model_pyro(X, obs=None):
+    x_train = x[:, :30]
+    x_test = x[:, 31:]
 
-    # Specify these as parameters instead of random variables?
-    sigma = pyro.sample('sigma', dist.HalfCauchy(0.1)) #dist.Normal(0, mod.sigma)) #prior for observation error
-    r = pyro.sample('r', dist.Normal(mod.r_mean, mod.r_sd)) #prior for parameters
+    mod = model.Ricker()  # Create class instance
+    mcmc, post_samples = mod.fit_model_pyro(x_train)
+    fit = open('results/fit.pkl', 'wb')
+    pickle.dump(post_samples, fit)
+    fit.close()
 
-    its = X.shape[0]-1
+    post_samples = open("results/fit.pkl", "rb")
+    post_samples = pickle.load(post_samples)
 
-    # At the moment we assume a constant growth rate over time. To change this, loop here over time steps.
-    # https: // www.youtube.com / watch?v = tw0cSm7TElE (minute 19)
-    preds = mod.model_iterate(X[0], r, iterations=its)
+    r_posterior = post_samples['r'].numpy()
+    sigma_posterior = post_samples['sigma'].numpy()
 
-    y = pyro.sample('y', dist.Normal(preds, sigma), obs=X)
+    plot_posterior(post_samples['r'])
+    plot_posterior(post_samples['sigma'])
 
-    return y
-
-# prep data for Pyro model
-X = torch.tensor(real_train.flatten()).float()
-
-# Run inference in Pyro
-nuts_kernel = NUTS(model_pyro)
-mcmc = MCMC(nuts_kernel, num_samples=500, warmup_steps=100, num_chains=1)
-mcmc.run(X)
-
-mcmc.summary()
-mcmc.diagnostics()
-posterior_samples = mcmc.get_samples()
-
-# Save the model and the model fit, i.e. posterior distributions.
-# IDEA: Save posterior distributions in model class object.
-
-def plot_posterior(ps):
-
-    """
-    Write a function, that displays posterior distributions.
-    Save plot to plots folder.
-    Move it to a visualizations script.
-    :param ps:
-    :return:
-    """
-
-
-
-
-
+    trajectories = mod.model_iterate(N0_mean, r_posterior, iterations=50, sigma = np.mean(sigma_posterior))
+    plot_trajectories(np.transpose(trajectories), x)

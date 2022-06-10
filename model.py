@@ -1,69 +1,95 @@
 import numpy as np
-from scipy.optimize import minimize
 import torch
+from pyro.infer import MCMC, NUTS
+import pyro
+import pyro.distributions as dist
+import pickle
 
+def iterate_ricker(theta, its, init = None, obs_error = False, stoch=False):
+
+    """
+    Based on Wood, 2010: Statistical inference for noisy nonlinear ecological dynamic systems.
+    :param theta:
+    :param its:
+    :param obs_error:
+    :return:
+    """
+    seed = 100
+    # initialize random number generator
+    num = np.random.RandomState(seed)
+
+    log_r = theta['log_r']
+    sigma = theta['sigma']
+    phi = theta['phi']
+    print('phi', phi)
+
+    # Initialize the time-series
+    if not init is None:
+        timeseries_obs_size = np.full((its), init, dtype=np.float)
+        timeseries_true_size = np.full((its), init, dtype=np.float)
+    else:
+        timeseries_obs_size = np.zeros((its), dtype=np.float)
+        timeseries_true_size = np.ones((its), dtype=np.float)
+
+    for i in range(1, its):
+        if stoch:
+            timeseries_true_size[i] = np.exp(log_r+np.log(timeseries_true_size[i-1])-timeseries_true_size[i-1]+sigma*num.normal(0, 1))
+            if obs_error:
+                timeseries_obs_size[i] = num.poisson(phi*timeseries_true_size[i])
+            else:
+                timeseries_obs_size[i] = phi * timeseries_true_size[i]
+        else:
+            timeseries_true_size[i] = np.exp(log_r+np.log(timeseries_true_size[i-1])-timeseries_true_size[i-1])
+            if obs_error:
+                timeseries_obs_size[i] = num.poisson(phi*timeseries_true_size[i])
+            else:
+                timeseries_obs_size[i] = phi * timeseries_true_size[i]
+
+    return timeseries_true_size, timeseries_obs_size
+
+def ricker_simulate(samples, its, theta, init = None, obs_error = False, stoch=False):
+
+        """
+        Based on Wood, 2010: Statistical inference for noisy nonlinear ecological dynamic systems.
+        """
+        timeseries_array_obs = [None]*samples
+        timeseries_array_true = [None]*samples
+
+        if init is not None:
+            seed = 100
+            # initialize random number generator
+            num = np.random.RandomState(seed)
+
+        for n in range(samples):
+
+            init_sample = num.normal(init[0], init[1])
+
+            timeseries_true_size, timeseries_obs_size = iterate_ricker(theta, its, init_sample, obs_error, stoch)
+            timeseries_array_obs[n] = timeseries_obs_size
+            timeseries_array_true[n] = timeseries_true_size
+
+        return np.array(timeseries_array_obs), np.array(timeseries_array_true)
+
+# Model as standard class object
 class Ricker:
+
     """Class for a Ricker model object."""
 
-    def __init__(self):
+    def __init__(self, stoch, N0_real, r_real, dyn_real):
 
         """This function specifies the initial state of the model, when an object is created.
             Required args:
                 NO (float): initial number of individuals in population.
         """
 
-        self.stoch = False
+        self.stoch = stoch
+        self.N0_real = N0_real
+        self.r_real = r_real
+        self.dyn_real = dyn_real
 
-    def set_priors(self, initial_conditions, parameters, process_error = None):
-
-        """
-        Specify the uncertainties that should be propagated.
-        So far for parameter r only. Distribution normal only.
-        :param mu: mean of normal
-        :param sigma: scale of normal
-        """
-
-        self.N0_mean = initial_conditions['N0_mean']
-        self.N0_sd = initial_conditions['N0_sd']
-
-        self.k = parameters['k']
-        self.r_mean = parameters['r_mean']
-        self.r_sd = parameters['r_sd']
-
-        if not process_error is None:
-            self.mu = process_error['mu']
-            self.sigma = process_error['sigma']
-            self.stoch = True
-
-        #return(mu, sigma)
-
-    def sample_from_priors(self):
+    def model_iterate(self, N0, r, iterations, sigma = None):
 
         """
-        Function that samples parameter from specified prior distribution.
-        So far only for r.
-        :return: sample of r.
-        """
-        N = np.random.normal(self.N0_mean, self.N0_sd)
-        r = np.random.normal(self.r_mean, self.r_sd)
-
-        return(N, r)
-
-    def model(self, N, r):
-        """
-        The model, one time step. Not recursive.
-        :param N: Population size at time t.
-        :param r: growth rate
-        :param k: carrying capacity
-        :return: Population size at time t+1
-        """
-        N = N * np.exp(r * (1 - N / self.k))
-        return(N)
-
-    def model_iterate(self, N0, r, iterations):
-
-        """
-
         :param x_init:
         :param r:
         :param iterations:
@@ -71,51 +97,51 @@ class Ricker:
         :return:
         """
 
-        x = []
-        x.append(N0)
-
+        x = np.zeros((iterations + 1, len(r)))
+        x[0, :] = N0
+        print("Initial values", x[0, :])
+        print("Paramvalues", r)
         for i in range(iterations):
-            x.append(x[i] * torch.exp(r * (1 - x[i] / self.k)))
-
-        x = torch.tensor(x).float()
-
-        return(x)
-
-    def model_simulate(self, samples, iterations):
-
-        """
-        Function used to simulate a bunch of population growth time series with the Ricker model.
-        Creates class attribute r, that is a list with growth rates used for simulations. RENAME.
-        :param samples: Number of time series to generate. Refers to number of samples from specified prior.
-        :param iterations: Number of time steps to simulate.
-        :param k: Carrying capacity. Default to 1.
-        :return: (array) simulated population growth at every sample of r.
-        """
-
-        self.r_samples = []
-        simulations = np.zeros((iterations + 1, samples))
-
-        for i in range(samples):
-
-            pars = self.sample_from_priors()
-
-            if self.stoch:
-                simulations[0, i] = np.random.normal(pars[0], self.sigma)
+            if not sigma is None:
+                x[i+1, :] = np.random.normal(x[i,:] * np.exp(np.multiply(r, (1 - x[i,:] / self.k))), sigma)
             else:
-                simulations[0, i] = pars[0]
+                x[i+1, :] = x[i,:] * np.exp(np.multiply(r, (1 - x[i,:] / self.k)))
+        return x
 
-            r = pars[1]
-            self.r_samples.append(r)
+    # Model in Pyro
+    def model_pyro(self):
 
-            for j in np.arange(iterations):
-                if self.stoch:
-                    simulations[j + 1, i] = self.model(simulations[j, i], r)
-                else:
-                    simulations[j + 1, i] = np.random.normal(self.model(simulations[j, i], r), self.sigma)
+        sigma = pyro.sample('sigma', dist.Uniform(0, 0.1))
+        r = pyro.sample('r', dist.Uniform(1.0, 1.6))
 
-        return simulations
+        N0 = self.dyn_real.flatten()[0]
 
+        # At the moment we assume a constant growth rate over time. To change this, loop here over time steps.
+        # https: // www.youtube.com / watch?v = tw0cSm7TElE (minute 19)
+        preds = []
+        preds.append(N0)
+        for i in range(self.dyn_real.shape[0]):
+            preds.append(preds[i] * torch.exp(r * (1 - preds[i] / self.k)))
+        #preds = torch.tensor(preds).float()
+        # Change to poisson likelihood with scale parameter as in woods(2010)
 
+        with pyro.plate('y'):
+            y = pyro.sample('y', dist.Normal(preds, sigma), obs=X)
+
+        return y
+
+    def fit_model_pyro(self):
+
+        # Run inference in Pyro
+        nuts_kernel = NUTS(self.model_pyro, max_tree_depth=5)
+        mcmc = MCMC(nuts_kernel, num_samples=300, warmup_steps=50, num_chains=2)
+        mcmc.run(torch.tensor(self.dyn_real))
+
+        print(mcmc.summary())
+        mcmc.diagnostics()
+        posterior_samples = mcmc.get_samples()
+
+        return mcmc, posterior_samples
 
 
 
