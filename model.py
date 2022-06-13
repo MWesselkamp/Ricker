@@ -5,6 +5,9 @@ import pyro
 import pyro.distributions as dist
 import pickle
 
+def ricker(N, log_r, phi):
+    return np.exp(log_r+np.log(N)-N)*phi
+
 def iterate_ricker(theta, its, init = None, obs_error = False, stoch=False):
 
     """
@@ -21,7 +24,6 @@ def iterate_ricker(theta, its, init = None, obs_error = False, stoch=False):
     log_r = theta['log_r']
     sigma = theta['sigma']
     phi = theta['phi']
-    print('phi', phi)
 
     # Initialize the time-series
     if not init is None:
@@ -63,12 +65,14 @@ def ricker_simulate(samples, its, theta, init = None, obs_error = False, stoch=F
         for n in range(samples):
 
             init_sample = num.normal(init[0], init[1])
+            while init_sample < 0:
+                init_sample = num.normal(init[0], init[1])
 
             timeseries_true_size, timeseries_obs_size = iterate_ricker(theta, its, init_sample, obs_error, stoch)
             timeseries_array_obs[n] = timeseries_obs_size
             timeseries_array_true[n] = timeseries_true_size
 
-        return np.array(timeseries_array_obs), np.array(timeseries_array_true)
+        return np.array(timeseries_array_obs)
 
 # Model as standard class object
 class Ricker:

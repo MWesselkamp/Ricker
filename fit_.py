@@ -1,26 +1,34 @@
 import matplotlib
+matplotlib.use('module://backend_interagg')
 
 import vizualisations
-
-matplotlib.use('module://backend_interagg')
+import utils
 import model
-from vizualisations import plot_posterior
-from vizualisations import plot_trajectories
-import math
+
 import numpy as np
 import scipy.optimize as optim
-from scipy.stats import pearsonr
 
-theta_true = {'log_r':1.8, 'sigma':0.3, 'phi':10}
-samples = 1
-its = 80 # Petchey 2015
-init = (1, 0)
+#===========================#
+# Simulate true time series #
+#===========================#
 
-timeseries_array_obs, timeseries_array_true = model.ricker_simulate(samples, its, theta_true, init = init,
-                                                                    obs_error=False, stoch=False)
+theta_true = {'log_r':2.9, 'sigma':0.3, 'phi':10}
+its = 60 # Petchey 2015
+train_size = 30
+test_index = 31
 
-x_train = timeseries_array_obs[0][:30]
-x_test = timeseries_array_obs[0][31:]
+initial_population_mean = 0.8
+initial_uncertainty = 0 # No uncertainty in real time series (Petchey)
+
+ensemble_size = 10
+ensemble_uncertainty = 0.01
+
+timeseries_array_obs = model.ricker_simulate(1, its, theta_true,
+                                             init = (initial_population_mean, initial_uncertainty),
+                                             obs_error=False, stoch=False)[0]
+
+x_train = timeseries_array_obs[:train_size]
+x_test = timeseries_array_obs[test_index:]
 
 #=======================#
 # Fit Ricker to x_train.#
@@ -28,12 +36,9 @@ x_test = timeseries_array_obs[0][31:]
 
 ## 1. Approach for data with purely deterministic model: Least squares.
 
-def ricker(N, log_r, phi):
-    return np.exp(log_r+np.log(N)-N)*phi
-
-# function to minimize
+# function to minimize: Residuals
 def fun(pars, x, y):
-    res = ricker(x, pars[0], pars[1]) - y
+    res = model.ricker(x, pars[0], pars[1]) - y
     return res
 
 # Initialize parameters randomly
@@ -50,7 +55,7 @@ y = x_train[1:]
 lsq_solution = optim.least_squares(fun, p0, bounds=bounds, loss = 'soft_l1', args=(x, y))
 log_r = lsq_solution.x[0]
 phi = lsq_solution.x[1]
-
+theta_hat = {'log_r':log_r, 'sigma':None, 'phi':phi}
 
 #=======================#
 # Forecast time series  #
@@ -62,86 +67,70 @@ historic_var = np.full((x_test.shape[0]), np.std(x_train), dtype=np.float)
 print(historic_mean, historic_var)
 
 # 2. Forecast with Ricker and fitted params
-samples = 1
-theta = {'log_r':log_r, 'sigma':None, 'phi':phi}
-init = (1, 0)
-
-ricker_preds1, timeseries_array_true = model.ricker_simulate(samples, its, theta, init=init, obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds1, its , phi = "Estimated parameters", var=historic_var)
+preds_single_estimated = model.ricker_simulate(1, its, theta_hat,
+                                            init=(initial_population_mean, 0),
+                                            obs_error=False, stoch=False)
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_single_estimated, its ,
+                             pars = 'estimated',
+                             phi = "Estimated parameters",
+                             var=historic_var)
 
 # 2. 1. Forecast with ensemble of initial conditions.
-samples = 10
-theta = {'log_r':log_r, 'sigma':None, 'phi':phi}
-init = (1, 0.1)
-
-ricker_preds1, timeseries_array_true = model.ricker_simulate(samples, its, theta, init=init, obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds1, its , phi = "Estimated parameters / Ensemble", var=historic_var)
+preds_ensemble_estimated = model.ricker_simulate(ensemble_size, its, theta_hat,
+                                                 init=(initial_population_mean, ensemble_uncertainty),
+                                                 obs_error=False, stoch=False)
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_ensemble_estimated, its ,
+                             pars = 'estimated',
+                             phi = "Estimated parameters / Ensemble", var=historic_var)
 
 # 3. Forecast with Ricker and known params
-samples = 1
-init = (1, 0)
-
-ricker_preds2, timeseries_array_true = model.ricker_simulate(samples, its, theta_true, init=init, obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds2, its, phi = "Perfect model knowledge", var=historic_var)
+preds_single_perfect = model.ricker_simulate(1, its, theta_true,
+                                            init=(initial_population_mean, 0),
+                                            obs_error=False, stoch=False)
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_single_perfect, its,
+                             pars = 'perfect',
+                             phi = "Perfect model knowledge", var=historic_var)
 
 # 3. 1. Forecast with ensemble of initial conditions.
-
-samples = 1
-init = (1, 0.1)
-
-ricker_preds2, timeseries_array_true = model.ricker_simulate(samples, its, theta_true, init=init, obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds2, its, phi = "Perfect model knowledge / Ensemble", var=historic_var)
+preds_ensemble_perfect = model.ricker_simulate(ensemble_size, its, theta_true,
+                                               init=(initial_population_mean, ensemble_uncertainty),
+                                               obs_error=False, stoch=False)
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_ensemble_perfect, its,
+                             pars = 'perfect',
+                             phi = "Perfect model knowledge / Ensemble", var=historic_var)
 
 #=======================#
 # Evaluate forecasts    #
 #=======================#
 
 # 1.  Standard proficiency measure: RMSE
-def rmse(y, y_pred):
-    return math.sqrt(np.square(np.subtract(y,y_pred)).mean())
 
 # Use performance of historic mean as forecast proficiency threshold.
-fpt = rmse(timeseries_array_obs[0][31:], historic_mean)
-print('Root mean square error:', fpt)
+fpt_hm = utils.rmse(timeseries_array_obs[test_index:], historic_mean)
 
-def forecast_rmse(preds):
-    """
-    Calculates forecast rmse for a time series of predictions by stepwise adding the next time step.
-    :param preds: predicted time series
-    :return: time series of rmse
-    """
+fed_estimated_params = utils.forecast_rmse(timeseries_array_obs, preds_ensemble_estimated, test_index)
+fed_perfect_model = utils.forecast_rmse(timeseries_array_obs, preds_ensemble_perfect, test_index)
 
-    forecast_error_distributions = []
-    for j in range(preds[:,31:].shape[1]-1):
-        errors = []
-        for i in range(preds.shape[0]):
-            errors.append(rmse(timeseries_array_obs[0][31:31+j+1], preds[i,31:31+j+1]))
-        forecast_error_distributions.append(errors)
-    return forecast_error_distributions
-
-fed_estimated_params = forecast_rmse(ricker_preds1)
-vizualisations.forecast_error_distributions(fed_estimated_params, fpt)
-
-fed_perfect_model = forecast_rmse(ricker_preds2)
-vizualisations.forecast_error_distributions(fed_perfect_model, fpt)
-
-# Forecast horizon as defined in Petchey 2015:
+# 2. Forecast horizon as defined in Petchey 2015:
 # When the mean of the forecast distribution falls below the forecast proficiency threshold.
 # Example: Correlation in a moving window of size 3, threshold 0.5.
 
-def rolling_corrs(preds):
-    forecast_corrs = []
-    for i in range(preds.shape[0]):
-        corrs = []
-        for j in range(31, preds.shape[1]-3):
-            corrs.append(pearsonr(timeseries_array_obs[0][j:j+3], preds[i,j:j+3])[0])
-        forecast_corrs.append(corrs)
-    return forecast_corrs
+fpt_corr = 0.5
+fcors_estimated_params = utils.rolling_corrs(timeseries_array_obs, preds_ensemble_estimated, test_index)
+fcors_perfect_model = utils.rolling_corrs(timeseries_array_obs, preds_ensemble_perfect, test_index)
 
-fcors_estimated_params = rolling_corrs(ricker_preds1)
-vizualisations.forecast_corr_distributions(fcors_estimated_params)
+# 3. Lyapunov exponent
 
 
+#==============#
+# Plot results #
+#==============#
 
-# 2. Lyapunov exponent
+vizualisations.forecast_error_distributions(fed_estimated_params, fpt_hm, 'estimated')
+vizualisations.forecast_error_distributions(fed_perfect_model, fpt_hm, 'perfect')
+vizualisations.forecast_corr_distributions(fcors_estimated_params, fpt_corr, 'both',
+                                           mat2= fcors_perfect_model)
+
+
+
 
