@@ -9,10 +9,11 @@ from vizualisations import plot_trajectories
 import math
 import numpy as np
 import scipy.optimize as optim
+from scipy.stats import pearsonr
 
-theta_true = {'log_r':2.8, 'sigma':0.3, 'phi':10}
+theta_true = {'log_r':1.8, 'sigma':0.3, 'phi':10}
 samples = 1
-its = 50 # Petchey 2015
+its = 80 # Petchey 2015
 init = (1, 0)
 
 timeseries_array_obs, timeseries_array_true = model.ricker_simulate(samples, its, theta_true, init = init,
@@ -62,7 +63,6 @@ print(historic_mean, historic_var)
 
 # 2. Forecast with Ricker and fitted params
 samples = 1
-its=50
 theta = {'log_r':log_r, 'sigma':None, 'phi':phi}
 init = (1, 0)
 
@@ -71,31 +71,26 @@ vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds1,
 
 # 2. 1. Forecast with ensemble of initial conditions.
 samples = 10
-its=50
 theta = {'log_r':log_r, 'sigma':None, 'phi':phi}
-init = (1, 0.01)
+init = (1, 0.1)
 
 ricker_preds1, timeseries_array_true = model.ricker_simulate(samples, its, theta, init=init, obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds1, its , phi = "Estimated parameters", var=historic_var)
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds1, its , phi = "Estimated parameters / Ensemble", var=historic_var)
 
 # 3. Forecast with Ricker and known params
 samples = 1
-its=50
-theta = theta_true
 init = (1, 0)
 
-ricker_preds2, timeseries_array_true = model.ricker_simulate(samples, its, theta, init=init, obs_error=False, stoch=False)
+ricker_preds2, timeseries_array_true = model.ricker_simulate(samples, its, theta_true, init=init, obs_error=False, stoch=False)
 vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds2, its, phi = "Perfect model knowledge", var=historic_var)
 
 # 3. 1. Forecast with ensemble of initial conditions.
 
 samples = 1
-its=50
-theta = theta_true
-init = (1, 0.01)
+init = (1, 0.1)
 
-ricker_preds2, timeseries_array_true = model.ricker_simulate(samples, its, theta, init=init, obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds2, its, phi = "Perfect model knowledge", var=historic_var)
+ricker_preds2, timeseries_array_true = model.ricker_simulate(samples, its, theta_true, init=init, obs_error=False, stoch=False)
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, ricker_preds2, its, phi = "Perfect model knowledge / Ensemble", var=historic_var)
 
 #=======================#
 # Evaluate forecasts    #
@@ -109,13 +104,42 @@ def rmse(y, y_pred):
 fpt = rmse(timeseries_array_obs[0][31:], historic_mean)
 print('Root mean square error:', fpt)
 
-errors = []
-for i in range(ricker_preds1.shape[0]):
-    errors.append(rmse(timeseries_array_obs[0][31:], ricker_preds1[i,31:]))
-print('Root mean square error:',errors)
+def forecast_rmse(preds):
+    """
+    Calculates forecast rmse for a time series of predictions by stepwise adding the next time step.
+    :param preds: predicted time series
+    :return: time series of rmse
+    """
+
+    forecast_error_distributions = []
+    for j in range(preds[:,31:].shape[1]-1):
+        errors = []
+        for i in range(preds.shape[0]):
+            errors.append(rmse(timeseries_array_obs[0][31:31+j+1], preds[i,31:31+j+1]))
+        forecast_error_distributions.append(errors)
+    return forecast_error_distributions
+
+fed_estimated_params = forecast_rmse(ricker_preds1)
+vizualisations.forecast_error_distributions(fed_estimated_params, fpt)
+
+fed_perfect_model = forecast_rmse(ricker_preds2)
+vizualisations.forecast_error_distributions(fed_perfect_model, fpt)
 
 # Forecast horizon as defined in Petchey 2015:
 # When the mean of the forecast distribution falls below the forecast proficiency threshold.
+# Example: Correlation in a moving window of size 3, threshold 0.5.
+
+def rolling_corrs(preds):
+    forecast_corrs = []
+    for i in range(preds.shape[0]):
+        corrs = []
+        for j in range(31, preds.shape[1]-3):
+            corrs.append(pearsonr(timeseries_array_obs[0][j:j+3], preds[i,j:j+3])[0])
+        forecast_corrs.append(corrs)
+    return forecast_corrs
+
+fcors_estimated_params = rolling_corrs(ricker_preds1)
+vizualisations.forecast_corr_distributions(fcors_estimated_params)
 
 
 
