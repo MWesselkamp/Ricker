@@ -8,6 +8,9 @@ import pickle
 def ricker(N, log_r, phi):
     return np.exp(log_r+np.log(N)-N)*phi
 
+def ricker_derivative(N, log_r, phi):
+    return -phi*np.exp(log_r)*np.exp(-N)(N-1)
+
 def iterate_ricker(theta, its, init = None, obs_error = False, stoch=False):
 
     """

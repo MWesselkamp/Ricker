@@ -44,18 +44,18 @@ def plot_trajectories(trajectories, its, true = None):
     fig.show()
     fig.savefig('plots/trajectories.png')
 
-def plot_forecast(observations, historic_mean, ricker, its, pars, phi = None, var=None):
+def plot_forecast(observations, historic_mean, ricker, its, test_index, pars,  phi = None, var=None):
 
     fig = plt.figure()
     ax = fig.add_subplot()
     obs = np.transpose(np.array(observations))
     plt.plot(np.arange(obs.shape[0]), obs, color="grey", label ='observations')
-    plt.plot(np.arange(31,its), np.transpose(np.array(historic_mean)), color="red", label='historic mean')
+    plt.plot(np.arange(test_index,its), np.transpose(np.array(historic_mean)), color="red", label='historic mean')
     if not var is None:
-        ax.fill_between(np.arange(31,its), np.transpose(np.array(historic_mean+var)), np.transpose(np.array(historic_mean-var)),
+        ax.fill_between(np.arange(test_index,its), np.transpose(np.array(historic_mean+var)), np.transpose(np.array(historic_mean-var)),
                         color="red", alpha=0.3)
     plt.plot(np.arange(its), np.transpose(np.array(ricker)), color="blue", alpha=0.5)
-    plt.axvline(x=31, color="black", linestyle="--")
+    plt.axvline(x=test_index, color="black", linestyle="--")
     ax.legend(loc='upper left')
     ax.set_xlabel('Time (generations)')
     ax.set_ylabel('Population size')

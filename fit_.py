@@ -13,9 +13,9 @@ import scipy.optimize as optim
 #===========================#
 
 theta_true = {'log_r':2.9, 'sigma':0.3, 'phi':10}
-its = 60 # Petchey 2015
-train_size = 30
-test_index = 31
+its = 100 # Petchey 2015
+train_size = 50
+test_index = 51
 
 initial_population_mean = 0.8
 initial_uncertainty = 0 # No uncertainty in real time series (Petchey)
@@ -70,7 +70,7 @@ print(historic_mean, historic_var)
 preds_single_estimated = model.ricker_simulate(1, its, theta_hat,
                                             init=(initial_population_mean, 0),
                                             obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_single_estimated, its ,
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_single_estimated, its , test_index,
                              pars = 'estimated',
                              phi = "Estimated parameters",
                              var=historic_var)
@@ -79,7 +79,7 @@ vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_single_e
 preds_ensemble_estimated = model.ricker_simulate(ensemble_size, its, theta_hat,
                                                  init=(initial_population_mean, ensemble_uncertainty),
                                                  obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_ensemble_estimated, its ,
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_ensemble_estimated, its , test_index,
                              pars = 'estimated',
                              phi = "Estimated parameters / Ensemble", var=historic_var)
 
@@ -87,7 +87,7 @@ vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_ensemble
 preds_single_perfect = model.ricker_simulate(1, its, theta_true,
                                             init=(initial_population_mean, 0),
                                             obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_single_perfect, its,
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_single_perfect, its, test_index,
                              pars = 'perfect',
                              phi = "Perfect model knowledge", var=historic_var)
 
@@ -95,7 +95,7 @@ vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_single_p
 preds_ensemble_perfect = model.ricker_simulate(ensemble_size, its, theta_true,
                                                init=(initial_population_mean, ensemble_uncertainty),
                                                obs_error=False, stoch=False)
-vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_ensemble_perfect, its,
+vizualisations.plot_forecast(timeseries_array_obs, historic_mean, preds_ensemble_perfect, its, test_index,
                              pars = 'perfect',
                              phi = "Perfect model knowledge / Ensemble", var=historic_var)
 
@@ -120,6 +120,9 @@ fcors_estimated_params = utils.rolling_corrs(timeseries_array_obs, preds_ensembl
 fcors_perfect_model = utils.rolling_corrs(timeseries_array_obs, preds_ensemble_perfect, test_index)
 
 # 3. Lyapunov exponent
+
+
+
 
 
 #==============#

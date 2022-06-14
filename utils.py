@@ -17,7 +17,7 @@ def forecast_rmse(obs, preds, test_index):
     for i in range(preds.shape[0]):
         errors = []
         for j in range(preds[:, test_index:].shape[1] - 1):
-            errors.append(utils.rmse(obs[test_index:test_index+j+1], preds[i,test_index:test_index+j+1]))
+            errors.append(rmse(obs[test_index:test_index+j+1], preds[i,test_index:test_index+j+1]))
         forecast_error_distributions.append(errors)
     return forecast_error_distributions
 
