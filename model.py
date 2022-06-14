@@ -3,15 +3,20 @@ import torch
 from pyro.infer import MCMC, NUTS
 import pyro
 import pyro.distributions as dist
-import pickle
 
-def ricker(N, log_r, phi):
-    return np.exp(log_r+np.log(N)-N)*phi
+def ricker(N, log_r, phi, sigma=None, seed = 100):
+
+    num = np.random.RandomState(seed)
+
+    if sigma is None:
+        return np.exp(log_r + np.log(N) - N) * phi
+    else:
+        return np.exp(log_r + np.log(N) - N + sigma*num.normal(0, 1)) * phi
 
 def ricker_derivative(N, log_r, phi):
-    return -phi*np.exp(log_r)*np.exp(-N)(N-1)
+    return -phi*np.exp(log_r)*np.exp(-N)*(N-1)
 
-def iterate_ricker(theta, its, init = None, obs_error = False, stoch=False):
+def iterate_ricker(theta, its, init, obs_error = False, seed = 100):
 
     """
     Based on Wood, 2010: Statistical inference for noisy nonlinear ecological dynamic systems.
@@ -20,50 +25,37 @@ def iterate_ricker(theta, its, init = None, obs_error = False, stoch=False):
     :param obs_error:
     :return:
     """
-    seed = 100
-    # initialize random number generator
-    num = np.random.RandomState(seed)
-
     log_r = theta['log_r']
     sigma = theta['sigma']
     phi = theta['phi']
 
+    num = np.random.RandomState(seed)
+
     # Initialize the time-series
-    if not init is None:
-        timeseries_obs_size = np.full((its), init, dtype=np.float)
-        timeseries_true_size = np.full((its), init, dtype=np.float)
-    else:
-        timeseries_obs_size = np.zeros((its), dtype=np.float)
-        timeseries_true_size = np.ones((its), dtype=np.float)
+    timeseries = np.full((its), init, dtype=np.float)
+    # Initalize timeseries for lyapunov exponent
+    timeseries_log_abs = np.zeros((its), dtype=np.float)
+    timeseries_log_abs[0] = np.log(abs(ricker_derivative(init, log_r, phi)))
 
     for i in range(1, its):
-        if stoch:
-            timeseries_true_size[i] = np.exp(log_r+np.log(timeseries_true_size[i-1])-timeseries_true_size[i-1]+sigma*num.normal(0, 1))
-            if obs_error:
-                timeseries_obs_size[i] = num.poisson(phi*timeseries_true_size[i])
-            else:
-                timeseries_obs_size[i] = phi * timeseries_true_size[i]
-        else:
-            timeseries_true_size[i] = np.exp(log_r+np.log(timeseries_true_size[i-1])-timeseries_true_size[i-1])
-            if obs_error:
-                timeseries_obs_size[i] = num.poisson(phi*timeseries_true_size[i])
-            else:
-                timeseries_obs_size[i] = phi * timeseries_true_size[i]
 
-    return timeseries_true_size, timeseries_obs_size
+        timeseries[i] = ricker(timeseries[i-1], log_r, phi, sigma)
+        if obs_error:
+            timeseries[i] = num.poisson(timeseries[i])
 
-def ricker_simulate(samples, its, theta, init = None, obs_error = False, stoch=False):
+        timeseries_log_abs[i] = np.log(abs(ricker_derivative(timeseries[i], log_r, phi)))
+
+    return timeseries, timeseries_log_abs
+
+def ricker_simulate(samples, its, theta, init, obs_error = False, seed=100):
 
         """
         Based on Wood, 2010: Statistical inference for noisy nonlinear ecological dynamic systems.
         """
-        timeseries_array_obs = [None]*samples
-        timeseries_array_true = [None]*samples
-
-        if init is not None:
-            seed = 100
-            # initialize random number generator
-            num = np.random.RandomState(seed)
+        timeseries_array = [None]*samples
+        timeseries_log_abs_array = [None] * samples
+        # initialize random number generator
+        num = np.random.RandomState(seed)
 
         for n in range(samples):
 
@@ -71,11 +63,13 @@ def ricker_simulate(samples, its, theta, init = None, obs_error = False, stoch=F
             while init_sample < 0:
                 init_sample = num.normal(init[0], init[1])
 
-            timeseries_true_size, timeseries_obs_size = iterate_ricker(theta, its, init_sample, obs_error, stoch)
-            timeseries_array_obs[n] = timeseries_obs_size
-            timeseries_array_true[n] = timeseries_true_size
+            timeseries, timeseries_log_abs = iterate_ricker(theta, its, init_sample, obs_error)
+            timeseries_array[n] = timeseries
+            timeseries_log_abs_array[n] = timeseries_log_abs
 
-        return np.array(timeseries_array_obs)
+        return np.array(timeseries_array), np.array(timeseries_log_abs_array)
+
+
 
 # Model as standard class object
 class Ricker:
