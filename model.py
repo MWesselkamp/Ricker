@@ -4,10 +4,17 @@ from pyro.infer import MCMC, NUTS
 import pyro
 import pyro.distributions as dist
 
+def historic_mean(x_test, x_train, length = 'test'):
+
+    if length=='test':
+        length = x_test.shape[0]
+    historic_mean = np.full((length), np.mean(x_train), dtype=np.float)
+    historic_var = np.full((length), np.std(x_train), dtype=np.float)
+    return historic_mean, historic_var
+
 def ricker(N, log_r, phi, sigma=None, seed = 100):
 
     num = np.random.RandomState(seed)
-
     if sigma is None:
         return np.exp(log_r + np.log(N) - N) * phi
     else:
@@ -67,7 +74,12 @@ def ricker_simulate(samples, its, theta, init, obs_error = False, seed=100):
             timeseries_array[n] = timeseries
             timeseries_log_abs_array[n] = timeseries_log_abs
 
-        return np.array(timeseries_array), np.array(timeseries_log_abs_array)
+        lyapunovs = np.mean(np.array(timeseries_log_abs_array), axis=1)
+
+        if samples != 1:
+            return np.array(timeseries_array), lyapunovs
+        else:
+            return np.array(timeseries_array)[0], lyapunovs
 
 
 

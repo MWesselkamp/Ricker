@@ -63,15 +63,21 @@ def plot_forecast(observations, historic_mean, ricker, its, test_index, pars,  p
     fig.show()
     fig.savefig(f'plots/forecast_{pars}.png')
 
-def forecast_error_distributions(mat, fpt, pars, phi= None):
+def forecast_error_distributions(mat, fpt, pars, mat2 = None, phi= None):
 
     fig = plt.figure()
     ax = fig.add_subplot()
     fc = np.array(mat)
     fc_mean = np.mean(fc, axis=0)
     fc_std = np.std(fc)
-    plt.plot(np.arange(fc.shape[1]), fc_mean, label="Ricker", color='blue')
-    ax.fill_between(np.arange(fc.shape[1]), fc_mean+fc_std, fc_mean-fc_std, color="blue", alpha=0.3)
+    plt.plot(np.arange(fc.shape[1]), fc_mean, label="Estimated", color='green')
+    ax.fill_between(np.arange(fc.shape[1]), fc_mean+fc_std, fc_mean-fc_std, color="green", alpha=0.2)
+    if not mat2 is None:
+        fc2 = np.array(mat2)
+        fc_mean2 = np.mean(fc2, axis=0)
+        fc_std2 = np.std(fc2)
+        plt.plot(np.arange(fc2.shape[1]), fc_mean2, label="Perfect", color='blue')
+        ax.fill_between(np.arange(fc2.shape[1]), fc_mean2 + fc_std2, fc_mean2 - fc_std2, color="blue", alpha=0.15)
     plt.axhline(y=fpt, color="black", linestyle="--", label="Historic mean")
     ax.set_xlabel('Time (generations)')
     ax.set_ylabel('Root mean square error')
@@ -95,7 +101,7 @@ def forecast_corr_distributions(mat, fpt, pars, mat2 = None, phi = None):
         fc_mean2 = np.mean(fc2, axis=0)
         fc_std2 = np.std(fc2, axis=0)
         plt.plot(np.arange(fc2.shape[1]), fc_mean2, label="Perfect Model", color='blue')
-        ax.fill_between(np.arange(fc2.shape[1]), fc_mean2 + fc_std2, fc_mean2 - fc_std2, color="blue", alpha=0.2)
+        ax.fill_between(np.arange(fc2.shape[1]), fc_mean2 + fc_std2, fc_mean2 - fc_std2, color="blue", alpha=0.15)
 
     plt.axhline(y=fpt, color="black", linestyle="--", label="Forecast Proficiency threshold")
     ax.set_xlabel('Time (generations)')
@@ -105,3 +111,21 @@ def forecast_corr_distributions(mat, fpt, pars, mat2 = None, phi = None):
     ax.set_title(phi)
     fig.show()
     fig.savefig(f'plots/forecast_corr_distributions_{pars}.png')
+
+def plot_lyapunov_exponents(log_r_values, true_lyapunovs, predicted_lyapunovs):
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    plt.plot(log_r_values, predicted_lyapunovs, color="red")
+    plt.plot(log_r_values, true_lyapunovs, label = "true", color="blue")
+    ax.set_ylabel("Lyapunov exponent")
+    ax.set_xlabel("Log_r value")
+    ax.legend(loc="lower right")
+    fig.show()
+
+def plot_lyapunov_efhs(log_r_values, predicted_efhs):
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    plt.plot(log_r_values, np.log10(predicted_efhs), color="blue")
+    ax.set_ylabel("Log10(Forecast horizon)")
+    ax.set_xlabel("Log_r value")
+    fig.show()
