@@ -150,15 +150,29 @@ if plot_results:
 #=============================================#
 # Predictability skill based on Séférian 2013 #
 #=============================================#
+# And: http://www.bom.gov.au/wmo/lrfvs/msss.shtml
 
 # Test the RMSEE against the standard deviation of observations, i.e. inital_uncertainty.
 
-def rmss(predicted, true):
-    e1 = (predicted - np.mean(predicted))
-    e2 = (true - np.mean(true))
-    rmss = 1/its * np.sum((e1-e2)**2)
-    return rmss
+def mse_f(predicted, true, n):
+    return (1/n)*np.sum((predicted-true)**2)
 
+def mse_cj(true, n):
+    return (1/n)*np.sum((true - np.mean(true))**2)
+
+mses = []
+for i in range(20):
+    mse1 = mse_f(predicted_timeseries[i,:,:], true_timeseries[i,:], its)
+    mse2 = mse_cj(true_timeseries[i,:], its)
+    rat = 1 - (mse1/mse2)
+    mses.append(rat)
+
+fig = plt.figure()
+ax = fig.add_subplot()
+plt.plot(log_r_values, mses)
+ax.set_ylabel("Mean squared skill score")
+ax.set_xlabel("Log r value")
+fig.show()
 # Calculate the F-statistic, i.e. the ratio of RMSEE variance against observation variance.
 
 
