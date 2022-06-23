@@ -122,10 +122,14 @@ def plot_lyapunov_exponents(log_r_values, true_lyapunovs, predicted_lyapunovs):
     ax.legend(loc="lower right")
     fig.show()
 
-def plot_lyapunov_efhs(log_r_values, predicted_efhs):
+def plot_lyapunov_efhs(log_r_values, predicted_efhs, log=False):
     fig = plt.figure()
     ax = fig.add_subplot()
-    plt.plot(log_r_values, np.log10(predicted_efhs), color="blue")
-    ax.set_ylabel("Log10(Forecast horizon)")
+    if log:
+        plt.plot(log_r_values, predicted_efhs, color="blue")
+        ax.set_ylabel("Forecast horizon")
+    else:
+        plt.plot(log_r_values, predicted_efhs, color="blue")
+        ax.set_ylabel("Log10(Forecast horizon)")
     ax.set_xlabel("Log_r value")
     fig.show()

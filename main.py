@@ -121,8 +121,9 @@ true_lyapunovs = np.array(true[1])
 predicted_timeseries = np.array(predicted[0])
 predicted_lyapunovs = np.array(predicted[1])
 
-if plot_results:
-    vizualisations.plot_lyapunov_exponents(log_r_values, true_lyapunovs, predicted_lyapunovs)
+plot_results = True
+
+vizualisations.plot_lyapunov_exponents(log_r_values, true_lyapunovs, predicted_lyapunovs)
 
 def lyapunov_efh(lyapunovs, precision, dell0):
     return np.multiply(1/lyapunovs,np.log(precision/dell0))
@@ -130,17 +131,18 @@ def lyapunov_efh(lyapunovs, precision, dell0):
 precision = 0.8
 predicted_efhs = lyapunov_efh(predicted_lyapunovs, precision, ensemble_uncertainty)
 
-if plot_results:
-    vizualisations.plot_lyapunov_efhs(log_r_values, predicted_efhs)
+vizualisations.plot_lyapunov_efhs(log_r_values, predicted_efhs)
+vizualisations.plot_lyapunov_efhs(log_r_values, predicted_efhs, log = True)
 
 absolute_differences = abs(np.subtract(true_timeseries.reshape((20,1,100)), predicted_timeseries))
 historic_mean, historic_var = model.historic_mean(x_test, x_train, length=100)
 differences_historic_mean = abs(np.subtract(true_timeseries, historic_mean))
 
+
 if plot_results:
     for i in range(20):
         fig = plt.figure()
-        ax = fig.add_subplot
+        ax = fig.add_subplot()
         plt.plot(np.arange(100), np.mean(absolute_differences[i,:,:], axis=0), color="black", label="predicted")
         plt.plot(np.arange(100), differences_historic_mean[i, :], color="red", label="historic mean")
         ax.set_ylabel("Absolute difference to truth")
@@ -173,7 +175,21 @@ plt.plot(log_r_values, mses)
 ax.set_ylabel("Mean squared skill score")
 ax.set_xlabel("Log r value")
 fig.show()
-# Calculate the F-statistic, i.e. the ratio of RMSEE variance against observation variance.
+
+#==================================================#
+# Calculate the F-statistic at every point in time #
+#==================================================#
+
+# # i.e. the ratio of RMSEE variance against observation variance.
 
 
+## get a p-value for this difference and save it
 
+
+def horizon(condition):
+
+    """
+    Calculate the horizon for a given condition: e.g. p-value < 0.05
+    :param condition:
+    :return: x.array Dataset with information about forecast, units...
+    """

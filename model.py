@@ -3,6 +3,7 @@ import torch
 from pyro.infer import MCMC, NUTS
 import pyro
 import pyro.distributions as dist
+import scipy.optimize as optim
 
 def historic_mean(x_test, x_train, length = 'test'):
 
@@ -12,16 +13,26 @@ def historic_mean(x_test, x_train, length = 'test'):
     historic_var = np.full((length), np.std(x_train), dtype=np.float)
     return historic_mean, historic_var
 
-def ricker(N, log_r, phi, sigma=None, seed = 100):
+def ricker(N, r, sigma=None, seed = 100):
+
+    """
+    Ricker according to Petchey (2015) or ecolmod R package for a carrying capacity k of 1.
+    :param N:
+    :param log_r:
+    :param phi:
+    :param sigma:
+    :param seed:
+    :return:
+    """
 
     num = np.random.RandomState(seed)
     if sigma is None:
-        return np.exp(log_r + np.log(N) - N) * phi
+        return N*np.exp(r*(1-N))
     else:
-        return np.exp(log_r + np.log(N) - N + sigma*num.normal(0, 1)) * phi
+        return N*np.exp(r*(1-N)) + sigma*num.normal(0, 1)
 
-def ricker_derivative(N, log_r, phi):
-    return -phi*np.exp(log_r)*np.exp(-N)*(N-1)
+def ricker_derivative(N, r):
+    return np.exp(r-r*N)*(1-r*N)
 
 def iterate_ricker(theta, its, init, obs_error = False, seed = 100):
 
@@ -32,9 +43,8 @@ def iterate_ricker(theta, its, init, obs_error = False, seed = 100):
     :param obs_error:
     :return:
     """
-    log_r = theta['log_r']
+    r = theta['r']
     sigma = theta['sigma']
-    phi = theta['phi']
 
     num = np.random.RandomState(seed)
 
@@ -42,15 +52,16 @@ def iterate_ricker(theta, its, init, obs_error = False, seed = 100):
     timeseries = np.full((its), init, dtype=np.float)
     # Initalize timeseries for lyapunov exponent
     timeseries_log_abs = np.zeros((its), dtype=np.float)
-    timeseries_log_abs[0] = np.log(abs(ricker_derivative(init, log_r, phi)))
+    timeseries_log_abs[0] = np.log(abs(ricker_derivative(init, r)))
 
     for i in range(1, its):
 
-        timeseries[i] = ricker(timeseries[i-1], log_r, phi, sigma)
+        timeseries[i] = ricker(timeseries[i-1], r, sigma)
         if obs_error:
+            # this can't be a possion distribution! Change this to something else.
             timeseries[i] = num.poisson(timeseries[i])
 
-        timeseries_log_abs[i] = np.log(abs(ricker_derivative(timeseries[i], log_r, phi)))
+        timeseries_log_abs[i] = np.log(abs(ricker_derivative(timeseries[i], r)))
 
     return timeseries, timeseries_log_abs
 
@@ -82,9 +93,145 @@ def ricker_simulate(samples, its, theta, init, obs_error = False, seed=100):
             return np.array(timeseries_array)[0], lyapunovs
 
 
+class Model:
+
+    def __init__(self):
+        self.num = np.random.RandomState(100)
+
+    def set_parameters(self, theta):
+        self.theta = theta
+
+    def set_boundaries(self, theta_bounds):
+        self.theta_bounds = theta_bounds
+
+    def print_parameters(self):
+        print("Model parameters")
+        try:
+            for key, value in self.theta.items():
+                print(key, value)
+        except:
+            print("Model parameters are not set.")
+
+    def sample_parameters(self):
+
+        print("Sampling parameters with default standard dev of 0.5")
+        pars = []
+        for par, mean in self.theta.items():
+            pars.append(self.num.normal(mean, 0.5, 1)[0])
+        return pars
+
+    def model_fit_lsq(self):
+
+        def fun(pars, x, y):
+            res = self.model(x, pars) - y
+            return res
+
+        pars = self.sample_parameters()
+        lsq_fit = optim.least_squares(fun, pars, bounds=self.theta_bounds, loss='soft_l1', args=(self.x, self.y))
+        self.theta_hat = dict(zip(self.theta.keys(),lsq_fit.x))
+
+        return lsq_fit
+
+class Ricker(Model):
+
+    def __init__(self, stoch=False):
+        super(Ricker, self).__init__()
+        self.stoch = stoch
+
+    def split_data(self, x_train):
+        self.x = x_train[:-1]
+        self.y = x_train[1:]
+
+    def model(self, N, pars=None):
+
+        if pars is None:
+            log_r = self.theta['log_r']
+            sigma = self.theta['sigma']
+            phi = self.theta['phi']
+        else:
+            log_r = pars[0]
+            sigma = pars[1]
+            phi = pars[2]
+
+        if self.stoch:
+            return np.exp(log_r + np.log(N) - N + sigma * self.num.normal(0, 1)) * phi
+        else:
+            return np.exp(log_r + np.log(N) - N) * phi
+
+    def initalize(self, initial_size, initial_uncertainty):
+        self.initial_size = initial_uncertainty
+        self.initial_uncertainty = initial_size, initial_uncertainty
+
+    def model_derivative(self, N):
+        return -self.theta['phi'] * np.exp(self.theta['log_r']) * np.exp(-N) * (N - 1)
+
+
+
+class Simulations:
+
+    def __init__(self, model):
+
+        self.model = model
+        self.num = model.num
+        self.obs_error = False
+
+    def simulate(self, samples, iterations):
+
+        """
+        Based on Wood, 2010: Statistical inference for noisy nonlinear ecological dynamic systems.
+        """
+        self.iterations = iterations
+        timeseries_array = [None] * samples
+        timeseries_log_abs_array = [None] * samples
+        # initialize random number generator
+
+        for n in range(samples):
+
+            init_sample = self.num.normal(self.model.initial[0], self.model.initial[1])
+            while init_sample < 0:
+                init_sample = self.num.normal(self.model.initial_size[0], self.model.initial_uncertainty[1])
+
+            timeseries, timeseries_log_abs = self.iterate(init_sample)
+            timeseries_array[n] = timeseries
+            timeseries_log_abs_array[n] = timeseries_log_abs
+
+        lyapunovs = np.mean(np.array(timeseries_log_abs_array), axis=1)
+
+        if samples != 1:
+            return np.array(timeseries_array), lyapunovs
+        else:
+            return np.array(timeseries_array)[0], lyapunovs
+
+
+    def iterate(self, init):
+
+        """
+        Based on Wood, 2010: Statistical inference for noisy nonlinear ecological dynamic systems.
+        :param theta:
+        :param its:
+        :param obs_error:
+        :return:
+        """
+
+        timeseries = np.full((self.iterations), init, dtype=np.float)
+
+        timeseries_log_abs = np.zeros((self.iterations), dtype=np.float)
+        timeseries_log_abs[0] = np.log(abs(self.model.derivative(init)))
+
+        for i in range(1, self.iterations):
+
+            timeseries[i] = self.model.model(timeseries[i - 1])
+            if self.obs_error:
+                timeseries[i] = self.num.poisson(timeseries[i])
+
+            timeseries_log_abs[i] = np.log(abs(self.model.derivative(timeseries[i])))
+
+        return timeseries, timeseries_log_abs
+
+
 
 # Model as standard class object
-class Ricker:
+class Ricker_1:
 
     """Class for a Ricker model object."""
 
