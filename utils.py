@@ -16,6 +16,7 @@ def rmse(y, y_pred):
 def forecast_rmse(obs, preds, test_index):
     """
     Calculates forecast rmse for a time series of predictions by stepwise adding the next time step.
+    Change this to a moving window? Or pointwise?
     :param preds: predicted time series
     :return: time series of rmse
     """
@@ -29,6 +30,15 @@ def forecast_rmse(obs, preds, test_index):
     return forecast_error_distributions
 
 def rolling_corrs(obs, preds, test_index, window = 3):
+    """
+    Rolling correlations between true and predicted dynamics in a moving window.
+    Change to cross-correlation?
+    :param obs: np.vector. true dynamics
+    :param preds: np.array. ensemble predictions.
+    :param test_index: int. Where to start calculation
+    :param window: int. Size of moving window.
+    :return: array with correlations. shape:
+    """
     forecast_corrs = []
     for i in range(preds.shape[0]):
         corrs = []

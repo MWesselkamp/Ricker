@@ -7,10 +7,19 @@ class Model:
         self.num = np.random.RandomState(100)
 
     def set_parameters(self, theta, precision=0.1):
+        """
+        Set true model parameters and precision for sampling under uncertainty.
+        :param theta: dict. Model Parameters, i.e. r and sigma.
+        :param precision:
+        :return:
+        """
         self.theta = theta
         self.precision = precision
 
     def print_parameters(self):
+        """
+        Prints theta.
+        """
         print("True parameter values:")
         try:
             for key, value in self.theta.items():
@@ -20,7 +29,8 @@ class Model:
 
     def sample_parameters(self):
         """
-        Sample parameters from normal distribution with mean and mean*precision
+        Sample parameters from normal distribution with mean and mean*precision.
+        Not used currently.
         """
         pars = []
         for par, mean in self.theta.items():
@@ -32,8 +42,10 @@ class Ricker(Model):
 
     def __init__(self, initial_size, initial_uncertainty, stoch=False):
         """
-        Initializes ricker model with poperties of model class.
-        :param stoch: assume a deterministic or stochastic process?
+        Initializes model as the Ricker model (Petchey 2015).
+        : initial_size: float. Population size at time 0.
+        : intial_uncertainty: float. ?Specify as precision?
+        :param stoch: assume a deterministic or stochastic process.
         """
         self.initial_size = initial_size
         self.initial_uncertainty = initial_uncertainty
@@ -42,19 +54,29 @@ class Ricker(Model):
         super(Ricker, self).__init__()
 
     def model(self, N):
-
+        """
+        With or without stochasticity (Woods 2010).
+        :param N: Population size at time step t.
+        """
         if not self.stoch:
             return N * np.exp(self.theta['r'] * (1 - N))
         else:
             return N * np.exp(self.theta['r'] * (1 - N)) + self.theta['sigma'] * self.num.normal(0, 1)
 
     def model_derivative(self, N):
+        """
+        Derivative of the Ricker at time step t.
+        :param N: Population size at time step t.
+        """
         return np.exp(self.theta['r'] - self.theta['r'] * N) * (1 - self.theta['r'] * N)
 
     def model_iterate(self, iterations, init, obs_error=False):
 
         """
         Based on Wood, 2010: Statistical inference for noisy nonlinear ecological dynamic systems.
+        iterations: int.
+        init: float. Initial Population size.
+        obs_error: Add noise to simulated ts?
         """
 
         timeseries = np.full(iterations, init, dtype=np.float)
@@ -63,7 +85,7 @@ class Ricker(Model):
         for i in range(1, iterations):
             timeseries[i] = self.model(timeseries[i - 1])
             if obs_error:
-                timeseries[i] = self.num.poisson(timeseries[i])  # Adjust distribution! Poisson not possible
+                timeseries[i] = self.num.poisson(timeseries[i])  # Adjust distribution! No poisson without phi
             timeseries_derivative[i] = self.model_derivative(timeseries[i])
 
         return timeseries, timeseries_derivative
@@ -72,28 +94,42 @@ class Ricker(Model):
 class Simulation:
 
     def __init__(self, mod, iterations, obs_error = False):
-
+        """
+        Requires model object of type Ricker with corresponding class functions and attributes.
+        :param mod: class. Model object.
+        :param iterations: int. Time steps.
+        :param obs_error: assume an observation error.
+        """
         self.obs_error = obs_error
         self.iterations = iterations
         self.mod = mod
         self.num = self.mod.num
 
     def simulate_single(self):
-
+        """
+        Calls model class function iterate.
+        :return: tuple. simulated timeseries and its derivative.
+        """
         initial_condition = self.num.normal(self.mod.initial_size, self.mod.initial_uncertainty)
         timeseries, timeseries_derivative = self.mod.model_iterate(self.iterations, initial_condition)
 
         return timeseries, timeseries_derivative
 
     def simulate_ensemble(self, ensemble_size, ensemble_uncertainty):
-
+        """
+        Simulates multiple population trajectories with noise on initial conditions
+        represented through normal error with known inital population size as mean.
+        :param ensemble_size: int.
+        :param ensemble_uncertainty: uncertainty on inital conditions.
+        :return: tuple of arrays. Timeseries and its derivative.
+        """
         timeseries_array = [None] * ensemble_size
         timeseries_derivative_array = [None] * ensemble_size
 
         for n in range(ensemble_size):
 
             initial_condition = self.num.normal(self.mod.initial_size, ensemble_uncertainty)
-            while initial_condition < 0: # Or use truncated normal/Half Cauchy
+            while initial_condition < 0: # Instead use truncated normal/Half Cauchy
                 initial_condition = self.num.normal(self.mod.initial_size, ensemble_uncertainty)
 
             timeseries, timeseries_derivative = self.mod.model_iterate(self.iterations, initial_condition)
@@ -102,11 +138,11 @@ class Simulation:
 
         return np.array(timeseries_array), np.array(timeseries_derivative_array)
 
-
+# Place this function somewhere else?
 def lsq_fit(mod, x_train, bounds = (0, [4.])):
     """
     Fits the ricker model to data in x_train.
-    At the moment doesn't optimize for sigma.
+    Currently just estimating r. Enable for sigma!
     :param x_train: 1d array, timeseries of true dynamics.
     :param bounds: boundaries for paramter values to sample within
     :return: least squares object
