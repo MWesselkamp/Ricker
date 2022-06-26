@@ -63,7 +63,7 @@ def plot_forecast(observations, historic_mean, ricker, its, test_index, pars,  p
     fig.show()
     fig.savefig(f'plots/forecast_{pars}.png')
 
-def forecast_error_distributions(mat, fpt, pars, mat2 = None, phi= None):
+def FP_rmse(mat, fpt, pars, mat2 = None, phi= None):
 
     fig = plt.figure()
     ax = fig.add_subplot()
@@ -86,7 +86,7 @@ def forecast_error_distributions(mat, fpt, pars, mat2 = None, phi= None):
     fig.show()
     fig.savefig(f'plots/forecast_error_distributions_{pars}.png')
 
-def forecast_corr_distributions(mat, fpt, pars, mat2 = None, phi = None):
+def FP_correlation(mat, fpt, pars, mat2 = None, phi = None):
 
     fig = plt.figure()
     ax = fig.add_subplot()
@@ -112,24 +112,40 @@ def forecast_corr_distributions(mat, fpt, pars, mat2 = None, phi = None):
     fig.show()
     fig.savefig(f'plots/forecast_corr_distributions_{pars}.png')
 
-def plot_lyapunov_exponents(log_r_values, true_lyapunovs, predicted_lyapunovs):
-    fig = plt.figure()
-    ax = fig.add_subplot()
-    plt.plot(log_r_values, predicted_lyapunovs, color="red")
-    plt.plot(log_r_values, true_lyapunovs, label = "true", color="blue")
-    ax.set_ylabel("Lyapunov exponent")
-    ax.set_xlabel("Log_r value")
-    ax.legend(loc="lower right")
-    fig.show()
+def FP_absdifferences(absolute_differences, absolute_differences_mean, its, log=False):
 
-def plot_lyapunov_efhs(log_r_values, predicted_efhs, log=False):
     fig = plt.figure()
     ax = fig.add_subplot()
     if log:
-        plt.plot(log_r_values, predicted_efhs, color="blue")
+        plt.plot(np.arange(its), np.log(absolute_differences), color="grey")
+        plt.plot(np.arange(its), np.log(absolute_differences_mean), color="black", label="mean")
+        ax.set_ylabel("Log of absolute difference to truth")
+    else:
+        plt.plot(np.arange(its), absolute_differences, color="grey")
+        plt.plot(np.arange(its), absolute_differences_mean, color="black", label="mean")
+        ax.set_ylabel("Absolute difference to truth")
+    ax.set_xlabel("Time step")
+    fig.show()
+
+
+def plot_lyapunov_exponents(r_values, true_lyapunovs, predicted_lyapunovs):
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    plt.plot(r_values, predicted_lyapunovs, color="red")
+    plt.plot(r_values, true_lyapunovs, label = "true", color="blue")
+    ax.set_ylabel("Lyapunov exponent")
+    ax.set_xlabel("r value")
+    ax.legend(loc="lower right")
+    fig.show()
+
+def plot_lyapunov_efhs(r_values, predicted_efhs, log=False):
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    if log:
+        plt.plot(r_values, predicted_efhs, color="blue")
         ax.set_ylabel("Forecast horizon")
     else:
-        plt.plot(log_r_values, predicted_efhs, color="blue")
+        plt.plot(r_values, np.log10(predicted_efhs), color="blue")
         ax.set_ylabel("Log10(Forecast horizon)")
-    ax.set_xlabel("Log_r value")
+    ax.set_xlabel("r value")
     fig.show()

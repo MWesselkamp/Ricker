@@ -1,29 +1,40 @@
-import model
+import modelclass
 
-theta_true = {'log_r':2.9, 'sigma':None, 'phi':10}
-its = 100 # Petchey 2015
+its = 100
 train_size = 50
 test_index = 51
-
 initial_population_mean = 0.8
 initial_uncertainty = 0 # No uncertainty in real time series (Petchey)
-
 ensemble_size = 10
 ensemble_uncertainty = 1e-5
 
-timeseries, timeseries_lyapunovs = model.ricker_simulate(1, its, theta_true,
-                                             init = (initial_population_mean, initial_uncertainty),
-                                             obs_error=False)
+theta = {'r':2.9, 'sigma':0.3}
 
-x_train = timeseries[:train_size]
-x_test = timeseries[test_index:]
-
-theta= {'log_r':2.9, 'sigma':0.3, 'phi':10}
-ricker = model.Ricker()
+ricker = modelclass.Ricker(initial_population_mean, initial_uncertainty)
 ricker.set_parameters(theta = theta)
-ricker.set_boundaries(theta_bounds=(0, [4., 2.0, 15]))
 ricker.print_parameters()
 
-#ricker.sample_parameters()
-ricker.split_data(x_train)
-lsq_solution = ricker.model_fit_lsq(x_train)
+# Simulate true dynamics
+simulator = modelclass.Simulation(ricker, iterations=its)
+ts_true, ts_true_derivative = simulator.simulate_single()
+
+# Simulate ensemble with perfect model knowledge
+perfect_ensemble, perfect_ensemble_derivative = simulator.simulate_ensemble(ensemble_size, ensemble_uncertainty)
+
+
+#==============================#
+# Fit model with Least squares #
+#==============================#
+
+x_train = ts_true[:train_size]
+x_test = ts_true[test_index:]
+
+lsqfit = modelclass.lsq_fit(ricker, x_train) # Changes theta in model object.
+
+
+
+
+
+
+# timeseries_lyapunovs_array = np.log(abs(timeseries_derivative_array))
+# lyapunovs = np.mean(np.array(timeseries_lyapunovs_array), axis=1)

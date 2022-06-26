@@ -7,7 +7,7 @@ import vizualisations
 import utils
 import model
 import fit
-
+import dynamics
 import numpy as np
 
 seed = 100
@@ -18,7 +18,7 @@ plot_results = False
 # Simulate true time series #
 #===========================#
 
-theta_true = {'log_r':2.9, 'sigma':None, 'phi':10}
+theta_true = {'r':2.9, 'sigma':None}
 its = 100 # Petchey 2015
 train_size = 50
 test_index = 51
@@ -48,7 +48,7 @@ lsq_solution, theta_hat = fit.lsq_fit(x_train, theta_true)
 #=======================#
 
 # 1. Forecast with historic mean
-historic_mean, historic_var = model.historic_mean(x_test, x_train)
+historic_mean, historic_var = utils.historic_mean(x_test, x_train)
 
 # 2. Forecast with Ricker and fitted params
 preds_single_estimated, lyapunovs_single_estimated = model.ricker_simulate(1, its, theta_hat,
@@ -66,30 +66,6 @@ preds_single_perfect, lyapunovs_single_perfect = model.ricker_simulate(1, its, t
 preds_ensemble_perfect, lyapunovs_ensemble_perfect = model.ricker_simulate(ensemble_size, its, theta_true,
                                                init=(initial_population_mean, ensemble_uncertainty))
 
-
-#=======================#
-# Evaluate forecasts    #
-#=======================#
-
-# 1.  Standard proficiency measure: RMSE
-
-# Use performance of historic mean as forecast proficiency threshold.
-fpt_hm = utils.rmse(timeseries[test_index:], historic_mean)
-
-fed_estimated_params = utils.forecast_rmse(timeseries, preds_ensemble_estimated, test_index)
-fed_perfect_model = utils.forecast_rmse(timeseries, preds_ensemble_perfect, test_index)
-
-# 2. Forecast horizon as defined in Petchey 2015:
-# When the mean of the forecast distribution falls below the forecast proficiency threshold.
-# Example: Correlation in a moving window of size 3, threshold 0.5.
-
-fpt_corr = 0.5
-fcors_estimated_params = utils.rolling_corrs(timeseries, preds_ensemble_estimated, test_index)
-fcors_perfect_model = utils.rolling_corrs(timeseries, preds_ensemble_perfect, test_index)
-
-# 3. EFH with Lyapunov exponents
-
-
 #==============#
 # Plot results #
 #==============#
@@ -100,47 +76,110 @@ if plot_results:
     vizualisations.plot_forecast(timeseries, historic_mean, preds_ensemble_estimated, its , test_index, pars = 'estimated', phi = "Estimated parameters / Ensemble", var=historic_var)
     vizualisations.plot_forecast(timeseries, historic_mean, preds_single_perfect, its, test_index, pars = 'perfect', phi = "Perfect model knowledge", var=historic_var)
     vizualisations.plot_forecast(timeseries, historic_mean, preds_ensemble_perfect, its, test_index, pars = 'perfect', phi = "Perfect model knowledge / Ensemble", var=historic_var)
-    vizualisations.forecast_error_distributions(fed_estimated_params, fpt_hm, 'both', mat2 = fed_perfect_model)
-    vizualisations.forecast_corr_distributions(fcors_estimated_params, fpt_corr, 'both', mat2= fcors_perfect_model)
+
+#============================#
+# Forecast proficiency: RMSE #
+#============================#
+
+# Use performance of historic mean as forecast proficiency threshold.
+historic_mean, historic_var = utils.historic_mean(x_test, x_train, length=its)
+fpt_hm = utils.rmse(timeseries, historic_mean)
+
+fed_estimated_params = utils.forecast_rmse(timeseries, preds_ensemble_estimated, test_index=0)
+fed_perfect_model = utils.forecast_rmse(timeseries, preds_ensemble_perfect, test_index = 0)
+vizualisations.FP_rmse(fed_perfect_model, fpt_hm, 'both', mat2=fed_perfect_model)
+
+#===================================#
+# Forecast proficiency: Correlation #
+#===================================#
+# When the mean of the forecast distribution falls below the forecast proficiency threshold.
+# Example: Correlation in a moving window of size 3, threshold 0.5.
+
+fpt_corr = 0.5
+fcors_estimated_params = utils.rolling_corrs(timeseries, preds_ensemble_estimated, test_index=0)
+fcors_perfect_model = utils.rolling_corrs(timeseries, preds_ensemble_perfect, test_index=0)
+vizualisations.FP_correlation(fcors_perfect_model, fpt_corr, 'both', mat2= fcors_perfect_model)
+
+#=============================================#
+# Forecast proficiency: Absolute differences  #
+#=============================================#
+
+absolute_differences = np.transpose(abs(np.subtract(timeseries, preds_ensemble_perfect)))
+absolute_differences_mean = np.mean(absolute_differences, axis=1)
+
+vizualisations.FP_absdifferences(absolute_differences, absolute_differences_mean, its)
+vizualisations.FP_absdifferences(absolute_differences, absolute_differences_mean, its, log=True)
+
+# threshold?
+
+#==================================#
+# Lyapunov EFH for known r values  #
+#==================================#
+
+lyapunovs = np.array([np.mean(lyapunovs_ensemble_perfect[:,1:i], axis=1) for i in range(lyapunovs_ensemble_perfect.shape[1])])
+lyapunovs_over_time = np.mean(lyapunovs, axis=1)
+lyapunovs_full = lyapunovs[-1,:]
+
+# Absolute Differences as forecast profieciency
+# Maximum difference:
+Delta_max = absolute_differences.max()
+Delta_range = np.linspace(0.001, Delta_max, 40)
+
+predicted_efh = np.array([utils.lyapunov_efh(lyapunovs_full, Delta, ensemble_uncertainty) for Delta in Delta_range])
+fig = plt.figure()
+ax = fig.add_subplot()
+plt.plot(Delta_range, predicted_efh, color = "gray")
+plt.plot(Delta_range, np.mean(predicted_efh, axis=1), color="black")
+ax.set_xlabel('Forecast proficiency threshold ($\Delta$)')
+ax.set_ylabel('Predicted forecast horizons')
+fig.show()
+
+# RMS as Forecast proficiency
 
 
+#======================================#
+# Lyapunov EFH under varying r values  #
+#======================================#
 
-#=============================#
-# Varying the model parameter #
-#=============================#
+len_r_values = 30
+r_values = np.linspace(0.001, 4.0, len_r_values)
 
-log_r_values = np.linspace(0.0, 2.0, 20)
-
-true = list(zip(*[model.ricker_simulate(1, its, {'log_r':r, 'sigma':None, 'phi':10},
-                                             init = (initial_population_mean, initial_uncertainty)) for r in log_r_values]))
-predicted = list(zip(*[model.ricker_simulate(ensemble_size, its, {'log_r':r, 'sigma':None, 'phi':10},
-                                             init = (initial_population_mean, ensemble_uncertainty)) for r in log_r_values]))
-
+true = list(zip(*[model.ricker_simulate(1, its, {'r':r, 'sigma':None},
+                                             init = (initial_population_mean, initial_uncertainty)) for r in r_values]))
 true_timeseries = np.array(true[0])
-true_lyapunovs = np.array(true[1])
+true_lyapunovs = np.mean(np.array(true[1]).reshape(len_r_values, its), axis=1) # only last calculated Lyapunov exponent
+
+
+predicted = list(zip(*[model.ricker_simulate(ensemble_size, its, {'r':r, 'sigma':None},
+                                    init = (initial_population_mean, ensemble_uncertainty)) for r in r_values]))
+
 predicted_timeseries = np.array(predicted[0])
-predicted_lyapunovs = np.array(predicted[1])
+predicted_lyapunovs = np.mean(np.array(predicted[1]), axis=2)
 
 plot_results = True
+# plot Lyapunov exponent at end of time series.
+vizualisations.plot_lyapunov_exponents(r_values, true_lyapunovs, predicted_lyapunovs)
 
-vizualisations.plot_lyapunov_exponents(log_r_values, true_lyapunovs, predicted_lyapunovs)
+precision_threshold = 0.8 # under varying precision?
+predicted_efhs = dynamics.lyapunov_efh(predicted_lyapunovs, precision_threshold, ensemble_uncertainty)
 
-def lyapunov_efh(lyapunovs, precision, dell0):
-    return np.multiply(1/lyapunovs,np.log(precision/dell0))
+vizualisations.plot_lyapunov_efhs(r_values, predicted_efhs)
+vizualisations.plot_lyapunov_efhs(r_values, predicted_efhs, log = True)
 
-precision = 0.8
-predicted_efhs = lyapunov_efh(predicted_lyapunovs, precision, ensemble_uncertainty)
+#=================================================#
+# Absolute differences of Forecasts to reference  #
+#=================================================#
 
-vizualisations.plot_lyapunov_efhs(log_r_values, predicted_efhs)
-vizualisations.plot_lyapunov_efhs(log_r_values, predicted_efhs, log = True)
-
-absolute_differences = abs(np.subtract(true_timeseries.reshape((20,1,100)), predicted_timeseries))
+# Currently: Take observations as reference and mean and Ricker as forecasts.
+# USE historic mean as REFERENCE instead of forecast!
+absolute_differences = abs(np.subtract(true_timeseries.reshape((len_r_values,1,100)), predicted_timeseries))
 historic_mean, historic_var = model.historic_mean(x_test, x_train, length=100)
 differences_historic_mean = abs(np.subtract(true_timeseries, historic_mean))
 
+plot_results=False
 
 if plot_results:
-    for i in range(20):
+    for i in range(len_r_values):
         fig = plt.figure()
         ax = fig.add_subplot()
         plt.plot(np.arange(100), np.mean(absolute_differences[i,:,:], axis=0), color="black", label="predicted")
@@ -149,11 +188,15 @@ if plot_results:
         ax.set_xlabel("Time step")
         fig.show()
 
+# Forecast horizon with absolute difference as Delta over time.
+
+
 #=============================================#
 # Predictability skill based on Séférian 2013 #
 #=============================================#
 # And: http://www.bom.gov.au/wmo/lrfvs/msss.shtml
 
+# Only possible if OBSERVATIONS are present!
 # Test the RMSEE against the standard deviation of observations, i.e. inital_uncertainty.
 
 def mse_f(predicted, true, n):
@@ -163,7 +206,7 @@ def mse_cj(true, n):
     return (1/n)*np.sum((true - np.mean(true))**2)
 
 mses = []
-for i in range(20):
+for i in range(len_r_values):
     mse1 = mse_f(predicted_timeseries[i,:,:], true_timeseries[i,:], its)
     mse2 = mse_cj(true_timeseries[i,:], its)
     rat = 1 - (mse1/mse2)
@@ -171,9 +214,9 @@ for i in range(20):
 
 fig = plt.figure()
 ax = fig.add_subplot()
-plt.plot(log_r_values, mses)
+plt.plot(r_values, mses)
 ax.set_ylabel("Mean squared skill score")
-ax.set_xlabel("Log r value")
+ax.set_xlabel("r value")
 fig.show()
 
 #==================================================#
@@ -181,6 +224,8 @@ fig.show()
 #==================================================#
 
 # # i.e. the ratio of RMSEE variance against observation variance.
+# # OR the forecast variance against the historic mean variance.
+# degrees of freedom?!
 
 
 ## get a p-value for this difference and save it
