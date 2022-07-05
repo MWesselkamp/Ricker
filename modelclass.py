@@ -40,7 +40,7 @@ class Model:
 
 class Ricker(Model):
 
-    def __init__(self, initial_size, initial_uncertainty, stoch=False):
+    def __init__(self, initial_size, initial_uncertainty):
         """
         Initializes model as the Ricker model (Petchey 2015).
         : initial_size: float. Population size at time 0.
@@ -49,16 +49,15 @@ class Ricker(Model):
         """
         self.initial_size = initial_size
         self.initial_uncertainty = initial_uncertainty
-        self.stoch = stoch
 
         super(Ricker, self).__init__()
 
-    def model(self, N):
+    def model(self, N, stoch=False):
         """
         With or without stochasticity (Woods 2010).
         :param N: Population size at time step t.
         """
-        if not self.stoch:
+        if not stoch:
             return N * np.exp(self.theta['r'] * (1 - N))
         else:
             return N * np.exp(self.theta['r'] * (1 - N)) + self.theta['sigma'] * self.num.normal(0, 1)
@@ -70,7 +69,7 @@ class Ricker(Model):
         """
         return np.exp(self.theta['r'] - self.theta['r'] * N) * (1 - self.theta['r'] * N)
 
-    def model_iterate(self, iterations, init, obs_error=False):
+    def model_iterate(self, iterations, init, obs_error=False, stoch=False):
 
         """
         Based on Wood, 2010: Statistical inference for noisy nonlinear ecological dynamic systems.
@@ -83,7 +82,7 @@ class Ricker(Model):
         timeseries_derivative = np.full(iterations, self.model_derivative(init), dtype=np.float)
 
         for i in range(1, iterations):
-            timeseries[i] = self.model(timeseries[i - 1])
+            timeseries[i] = self.model(timeseries[i - 1], stoch)
             if obs_error:
                 timeseries[i] = self.num.poisson(timeseries[i])  # Adjust distribution! No poisson without phi
             timeseries_derivative[i] = self.model_derivative(timeseries[i])
@@ -93,50 +92,60 @@ class Ricker(Model):
 
 class Simulation:
 
-    def __init__(self, mod, iterations, obs_error = False):
+    def __init__(self, mod, iterations):
         """
         Requires model object of type Ricker with corresponding class functions and attributes.
         :param mod: class. Model object.
         :param iterations: int. Time steps.
         :param obs_error: assume an observation error.
         """
-        self.obs_error = obs_error
         self.iterations = iterations
         self.mod = mod
         self.num = self.mod.num
 
-    def simulate_single(self):
+    def sources_of_uncertainty(self, parameters, initial, observation, stoch):
+
+        self.parameters = parameters # parameter error still missing!
+        self.inital = initial # check
+        self.obs_error = observation # check
+        self.stoch = stoch # check
+
+    def simulate(self, ensemble_size = None):
         """
         Calls model class function iterate.
         :return: tuple. simulated timeseries and its derivative.
         """
-        initial_condition = self.num.normal(self.mod.initial_size, self.mod.initial_uncertainty)
-        timeseries, timeseries_derivative = self.mod.model_iterate(self.iterations, initial_condition)
 
-        return timeseries, timeseries_derivative
+        if not ensemble_size is None:
+            timeseries_array = [None] * ensemble_size
+            timeseries_derivative_array = [None] * ensemble_size
 
-    def simulate_ensemble(self, ensemble_size, ensemble_uncertainty):
-        """
-        Simulates multiple population trajectories with noise on initial conditions
-        represented through normal error with known inital population size as mean.
-        :param ensemble_size: int.
-        :param ensemble_uncertainty: uncertainty on inital conditions.
-        :return: tuple of arrays. Timeseries and its derivative.
-        """
-        timeseries_array = [None] * ensemble_size
-        timeseries_derivative_array = [None] * ensemble_size
+            for n in range(ensemble_size):
 
-        for n in range(ensemble_size):
+                initial_condition = self.num.normal(self.mod.initial_size, self.mod.initial_uncertainty)
+                while initial_condition < 0:  # Instead use truncated normal/Half Cauchy
+                    initial_condition = self.num.normal(self.mod.initial_size, self.mod.initial_uncertainty)
 
-            initial_condition = self.num.normal(self.mod.initial_size, ensemble_uncertainty)
-            while initial_condition < 0: # Instead use truncated normal/Half Cauchy
-                initial_condition = self.num.normal(self.mod.initial_size, ensemble_uncertainty)
+                timeseries, timeseries_derivative = self.mod.model_iterate(self.iterations, initial_condition,
+                                                                           obs_error = self.obs_error,
+                                                                           stoch = self.stoch)
+                timeseries_array[n] = timeseries
+                timeseries_derivative_array[n] = timeseries_derivative
 
-            timeseries, timeseries_derivative = self.mod.model_iterate(self.iterations, initial_condition)
-            timeseries_array[n] = timeseries
-            timeseries_derivative_array[n] = timeseries_derivative
+            return np.array(timeseries_array), np.array(timeseries_derivative_array)
 
-        return np.array(timeseries_array), np.array(timeseries_derivative_array)
+        else:
+            if self.inital: # only if inital conditions uncertainty considered
+                initial_condition = self.num.normal(self.mod.initial_size, self.mod.initial_uncertainty)
+            else:
+                initial_condition = self.mod.initial_size
+            timeseries, timeseries_derivative = self.mod.model_iterate(self.iterations, initial_condition,
+                                                                       obs_error=self.obs_error,
+                                                                       stoch = self.stoch)
+
+            return timeseries, timeseries_derivative
+
+
 
 # Place this function somewhere else?
 def lsq_fit(mod, x_train, bounds = (0, [4.])):
