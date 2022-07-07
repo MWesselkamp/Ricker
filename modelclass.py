@@ -106,7 +106,7 @@ class Simulation:
     def sources_of_uncertainty(self, parameters, initial, observation, stoch):
 
         self.parameters = parameters # parameter error still missing!
-        self.inital = initial # check
+        self.initial = initial # check
         self.obs_error = observation # check
         self.stoch = stoch # check
 
@@ -122,9 +122,12 @@ class Simulation:
 
             for n in range(ensemble_size):
 
-                initial_condition = self.num.normal(self.mod.initial_size, self.mod.initial_uncertainty)
-                while initial_condition < 0:  # Instead use truncated normal/Half Cauchy
+                if self.initial:
                     initial_condition = self.num.normal(self.mod.initial_size, self.mod.initial_uncertainty)
+                    while initial_condition < 0:  # Instead use truncated normal/Half Cauchy
+                        initial_condition = self.num.normal(self.mod.initial_size, self.mod.initial_uncertainty)
+                else:
+                    initial_condition = self.mod.initial_size
 
                 timeseries, timeseries_derivative = self.mod.model_iterate(self.iterations, initial_condition,
                                                                            obs_error = self.obs_error,
@@ -135,7 +138,7 @@ class Simulation:
             return np.array(timeseries_array), np.array(timeseries_derivative_array)
 
         else:
-            if self.inital: # only if inital conditions uncertainty considered
+            if self.initial: # only if inital conditions uncertainty considered
                 initial_condition = self.num.normal(self.mod.initial_size, self.mod.initial_uncertainty)
             else:
                 initial_condition = self.mod.initial_size

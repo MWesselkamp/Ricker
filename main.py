@@ -123,16 +123,10 @@ lyapunovs_full = lyapunovs[-1,:]
 # Absolute Differences as forecast profieciency
 # Maximum difference:
 Delta_max = absolute_differences.max()
-Delta_range = np.linspace(0.001, Delta_max, 40)
+Delta_range = np.linspace(ensemble_uncertainty, Delta_max, 40)
 
 predicted_efh = np.array([utils.lyapunov_efh(lyapunovs_full, Delta, ensemble_uncertainty) for Delta in Delta_range])
-fig = plt.figure()
-ax = fig.add_subplot()
-plt.plot(Delta_range, predicted_efh, color = "gray")
-plt.plot(Delta_range, np.mean(predicted_efh, axis=1), color="black")
-ax.set_xlabel('Forecast proficiency threshold ($\Delta$)')
-ax.set_ylabel('Predicted forecast horizons')
-fig.show()
+
 
 # RMS as Forecast proficiency
 

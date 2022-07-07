@@ -117,12 +117,12 @@ def FP_absdifferences(absolute_differences, absolute_differences_mean, its, log=
     fig = plt.figure()
     ax = fig.add_subplot()
     if log:
-        plt.plot(np.arange(its), np.log(absolute_differences), color="grey")
-        plt.plot(np.arange(its), np.log(absolute_differences_mean), color="black", label="mean")
+        plt.plot(np.arange(its), np.transpose(np.log(absolute_differences)), color="grey")
+        plt.plot(np.arange(its), np.transpose(np.log(absolute_differences_mean)), color="black", label="mean")
         ax.set_ylabel("Log of absolute difference to truth")
     else:
-        plt.plot(np.arange(its), absolute_differences, color="grey")
-        plt.plot(np.arange(its), absolute_differences_mean, color="black", label="mean")
+        plt.plot(np.arange(its), np.transpose(absolute_differences), color="grey")
+        plt.plot(np.arange(its), np.transpose(absolute_differences_mean), color="black", label="mean")
         ax.set_ylabel("Absolute difference to truth")
     ax.set_xlabel("Time step")
     fig.show()
@@ -148,4 +148,13 @@ def plot_lyapunov_efhs(r_values, predicted_efhs, log=False):
         plt.plot(r_values, np.log10(predicted_efhs), color="blue")
         ax.set_ylabel("Log10(Forecast horizon)")
     ax.set_xlabel("r value")
+    fig.show()
+
+def plot_LE_efh_along_Delta(Delta_range, predicted_efh):
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    plt.plot(Delta_range, predicted_efh, color="gray")
+    plt.plot(Delta_range, np.mean(predicted_efh, axis=1), color="black")
+    ax.set_xlabel('Forecast proficiency threshold ($\Delta$)')
+    ax.set_ylabel('Predicted forecast horizons')
     fig.show()
