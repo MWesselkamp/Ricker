@@ -112,7 +112,8 @@ def FP_correlation(mat, fpt, pars, mat2 = None, phi = None):
     fig.show()
     fig.savefig(f'plots/forecast_corr_distributions_{pars}.png')
 
-def FP_absdifferences(absolute_differences, absolute_differences_mean, its, log=False):
+def FP_absdifferences(absolute_differences, absolute_differences_mean, its, log=False,
+                      dir = 'plots/baseline/proficiencies'):
 
     fig = plt.figure()
     ax = fig.add_subplot()
@@ -126,6 +127,7 @@ def FP_absdifferences(absolute_differences, absolute_differences_mean, its, log=
         ax.set_ylabel("Absolute difference to truth")
     ax.set_xlabel("Time step")
     fig.show()
+    fig.savefig(f'{dir}/FP_absdifferences.png')
 
 
 def plot_lyapunov_exponents(r_values, true_lyapunovs, predicted_lyapunovs):

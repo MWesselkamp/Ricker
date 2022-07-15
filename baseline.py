@@ -79,7 +79,6 @@ def efh_mean(metric, profiencies, threshold, ps = False):
         pred_skills = np.argmax(profiencies > threshold, axis=1)
         # pred_skills = [min(np.arange(profiencies.shape[1])[efh[i,:]]) for i in range(profiencies.shape[0])]
         # mean_pred_skill = min(np.arange(profiencies.shape[1])[profiencies_mean > threshold])
-
     b = [np.sum(efh, axis=1) == 0]  # get the rows where the efh is never reached
     pred_skills[b] = profiencies.shape[1] # replace by maximum efh
 
@@ -93,7 +92,7 @@ fig = plt.figure()
 plt.pcolor(efh_mse)
 fig.show()
 
-
+# Predict Forecast horizon under varying threshold for proficiency metrics.
 threshold_seq = np.linspace(initial_uncertainty, 1, 20)
 efhs_mse = np.array([efh_mean('mse', mse_rolling, t, ps=True) for t in threshold_seq])
 
@@ -104,27 +103,53 @@ plt.plot(threshold_seq, np.mean(efhs_mse, axis=1), color="darkblue")
 ax.set_xlabel('MSE threshold for acceptance')
 ax.set_ylabel('Predicted forecast horizon')
 fig.show()
+fig.savefig(f'plots/baseline/efh_mean/mse_threshold.png')
 
 
 efh_corr, efh_corr_min = efh_mean('corr', corrs, 0.5)
-fig = plt.figure()
-plt.pcolor(efh_corr)
-fig.show()
-# We require a second function parameter: The correlation seems to meander around the threshold.
-# So for example: The EFH is the mean time after which the correlations falls below the threshold for at least three time steps in a row.
-# This is super randomly?!
-# So simply summarize this (following the definiton of Petchey:
-# empirical confidence intervalls, or use quantiles - looks very similar.)
+efhs_corrs = np.array([efh_mean('corr', corrs, t, ps=True) for t in threshold_seq])
 
-print("Mean EFH with rolling correlation: ", efh_corr_min)
+fig = plt.figure()
+ax = fig.add_subplot()
+plt.plot(threshold_seq, efhs_corrs, color="lightblue")
+plt.plot(threshold_seq, np.mean(efhs_corrs, axis=1), color="darkblue")
+ax.set_xlabel('Correlation threshold for acceptance')
+ax.set_ylabel('Predicted forecast horizon')
+fig.show()
+fig.savefig(f'plots/baseline/efh_mean/corr_threshold.png')
+
+
+# For the correlation now consider the moving window as additional parameter.
+mcorrs  = []
+for wind in range(3,10):
+    mcorrs.append(proficiency_metrics.rolling_corrs(ts_true, perfect_ensemble_d, window=wind))
+efhs_mcorrs = np.array([efh_mean('corr', mcorrs[i], t, ps=True) for t in threshold_seq for i in range(len(mcorrs))])
+
+efhs_mcorrs = efhs_mcorrs.reshape(20, 7, ensemble_size)
+ehfs_mcorrs_m = np.mean(efhs_mcorrs, axis=2)
+
+fig = plt.figure()
+ax = fig.add_subplot()
+for i in range(ensemble_size):
+    plt.plot(threshold_seq, efhs_mcorrs[:,:,i], color="lightblue")
+plt.plot(threshold_seq, ehfs_mcorrs_m, color="darkblue")
+plt.plot(threshold_seq, np.mean(ehfs_mcorrs_m, axis=1), color="yellow")
+ax.set_xlabel('Correlation threshold for acceptance')
+ax.set_ylabel('Predicted forecast horizon')
+fig.show()
+fig.savefig(f'plots/baseline/efh_mean/corr_threshold_window.png')
+
+# We require a second function parameter: The correlation strongly meanders around the threshold.
+# For example: The EFH is the mean time after which the correlations falls below the threshold for at least three time steps in a row.
+# Three days is super randomly?!
+# Simply summarize this (following the definiton of Petchey: empirical confidence intervalls, or quantiles - looks very similar.)
+
 
 # Quantile Horizon
-def efh_quantile(metric, accepted_error, actual_error, timesteps, quantiles = (0.01, 0.99)):
+def efh_quantile(metric, accepted_error, actual_error, timesteps, quantiles = (0.01, 0.99), ps = False):
     """
     1. Function parameter: What quantiles to use?
-    2. What is the "expected error" (or the one we accept)? Depends on the metric we choose!
-                                                            0.5 for correlation.
-                                                            Currently initial uncertainty for MSE and absDiff
+    2. What is the "expected error"
     """
     # Petcheys empirical Confidence Intervalls.
     def empCL(x, percent):
@@ -133,7 +158,6 @@ def efh_quantile(metric, accepted_error, actual_error, timesteps, quantiles = (0
     q_lower = [empCL(actual_error[:, i], quantiles[0]*100) for i in range(actual_error.shape[1])]
     q_mid = [empCL(actual_error[:, i], 50) for i in range(actual_error.shape[1])]
     q_upper = [empCL(actual_error[:, i], quantiles[1]*100) for i in range(actual_error.shape[1])]
-
     # Simply taking Quantiles
     error_metrics = ['mse', 'abs_diff']
     qu = np.quantile(actual_error, (quantiles[0], quantiles[1]), axis=0)
@@ -144,8 +168,14 @@ def efh_quantile(metric, accepted_error, actual_error, timesteps, quantiles = (0
         elif metric == 'cor':
             e = (min(qu[0, i], qu[1, i]) < accepted_error < max(qu[0, i], qu[1, i])) | ((min(qu[0, i], qu[1, i]) < accepted_error) & (max(qu[0, i], qu[1, i]) < accepted_error))
         efh.append(e)
-    min_pred_skill = min(np.arange(len(efh))[efh])
-    return efh, min_pred_skill
+    if np.sum(efh) == 0:
+        min_pred_skill = timesteps
+    else:
+        min_pred_skill = min(np.arange(len(efh))[efh])
+    if ps:
+        return min_pred_skill
+    else:
+        return efh, min_pred_skill
 
 
 efh_corrs, efh_corrs_min  = efh_quantile('cor', 0.5, corrs, corrs.shape[1])
@@ -154,21 +184,61 @@ fig = plt.figure()
 plt.plot(efh_corrs)
 plt.plot(efh_corrs2)
 fig.show()
-print("Quantile EFH1 with correlation: ", efh_corrs_min)
-print("Quantile EFH2 with correlation: ", efh_corrs2_min)
+
+# For varying threshold
+def create_quantiles(n, max):
+    u = 0.5 + np.linspace(0, max, n+1)
+    l = 0.5 - np.linspace(0, max, n+1)
+    r = np.array((l, u)).T
+    return r[1:,]
+
+qs = create_quantiles(20, max = 0.49)
+efh_corrs_ps = np.array([efh_quantile('cor', j, corrs, corrs.shape[1], ps=True, quantiles=qs[q,:]) for j in threshold_seq for q in range(len(qs))])
+efh_corrs_ps = efh_corrs_ps.reshape(20,20)
+
+fig = plt.figure()
+ax = fig.add_subplot()
+plt.plot(threshold_seq, efh_corrs_ps, color="lightblue")
+plt.plot(threshold_seq, np.mean(efh_corrs_ps, axis=1), color="darkblue")
+ax.set_xlabel('Correlation threshold for acceptance')
+ax.set_ylabel('Predicted forecast horizon')
+fig.show()
+fig.savefig(f'plots/baseline/efh_quantile/corr_threshold.png')
 
 
 efh_abs_diff, efh_abs_diff_min = efh_quantile('abs_diff', initial_uncertainty, abs_diff, its)
 fig = plt.figure()
 plt.plot(efh_abs_diff)
 fig.show()
-print("Quantile EFH with absolute differences: ", efh_abs_diff_min)
+# For varying threshold
+efh_abs_diff_ps = np.array([efh_quantile('abs_diff', i, abs_diff, its, ps=True, quantiles=qs[q,:]) for i in threshold_seq for q in range(len(qs))])
+efh_abs_diff_ps = efh_abs_diff_ps.reshape(20,20)
+fig = plt.figure()
+ax = fig.add_subplot()
+plt.plot(threshold_seq, efh_abs_diff_ps, color="lightblue")
+plt.plot(threshold_seq, np.mean(efh_abs_diff_ps, axis=1), color="darkblue")
+ax.set_xlabel('Absolute difference threshold for acceptance')
+ax.set_ylabel('Predicted forecast horizon')
+fig.show()
+fig.savefig(f'plots/baseline/efh_quantile/absdiff_threshold.png')
+
 
 efh_mse_rolling, efh_mse_rolling_min = efh_quantile('mse', initial_uncertainty, mse_rolling, its)
 fig = plt.figure()
 plt.plot(efh_mse_rolling)
 fig.show()
-print("Quantile EFH with Rolling MSE: ", efh_mse_rolling_min)
+# For varying threshold
+efh_mse_ps  = np.array([efh_quantile('mse', i, mse_rolling, its, ps=True, quantiles=qs[q,:]) for i in threshold_seq for q in range(len(qs))])
+efh_mse_ps = efh_mse_ps.reshape(20,20)
+fig = plt.figure()
+ax = fig.add_subplot()
+plt.plot(threshold_seq, efh_mse_ps, color="lightblue")
+plt.plot(threshold_seq, np.mean(efh_mse_ps, axis=1), color="darkblue")
+ax.set_xlabel('MSE threshold for acceptance')
+ax.set_ylabel('Predicted forecast horizon')
+fig.show()
+fig.savefig(f'plots/baseline/efh_quantile/mse_threshold.png')
+
 
 # t-test Statistics
 t_stats, p_vals = proficiency_metrics.t_statistic(abs_diff, initial_uncertainty) # Where p-value is smaller than threshold.
@@ -186,7 +256,7 @@ Delta_range = np.linspace(initial_uncertainty*1000, abs_diff.max(), l)
 delta_range = np.linspace(initial_uncertainty, initial_uncertainty*100, l)
 
 predicted_efh = np.array([dynamics.efh_lyapunov(lyapunovs, Delta, delta) for Delta in Delta_range for delta in delta_range])
-predicted_efh = predicted_efh.reshape((l, l, 50))
+predicted_efh = predicted_efh.reshape((l, l, ensemble_size))
 predicted_efh_m = np.mean(predicted_efh, axis=2)
 
 fig = plt.figure()
@@ -197,8 +267,8 @@ plt.plot(Delta_range, predicted_efh_m, color="darkblue")
 plt.plot(Delta_range, np.mean(predicted_efh_m, axis=1), color="yellow")
 ax.set_xlabel('Forecast proficiency threshold ($\Delta$)')
 ax.set_ylabel('Predicted forecast horizon')
+fig.savefig(r'plots/baseline/efh_lyapunov/delta_U.png')
 fig.show()
-
 
 predicted_efh = np.array([dynamics.efh_lyapunov(lyapunovs, Delta, delta) for delta in delta_range for Delta in Delta_range])
 predicted_efh = predicted_efh.reshape((l, l, 50))
@@ -211,10 +281,9 @@ for i in range(ensemble_size):
 plt.plot(delta_range, predicted_efh_m, color="darkblue")
 plt.plot(delta_range, np.mean(predicted_efh_m, axis=1), color="yellow")
 ax.set_xlabel('Initial uncertainty ($\delta$)')
-ax.set_ylabel('Predicted forecast horizons')
+ax.set_ylabel('Predicted forecast horizon')
+fig.savefig(r'plots/baseline/efh_lyapunov/delta_L.png')
 fig.show()
-
-
 #================================================================#
 # Forecast horizon based on  Spring & Ilyina 2018 / Goddard 2013 #
 #================================================================#

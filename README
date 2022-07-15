@@ -1,8 +1,12 @@
-Determining the forecasting horizon of the Ricker model with selected approaches.
+Structure:
 
-Uncertainties considered in the forecasting system:
-- process/observation error (not distinguished!) (sigma)
-- parameter uncertainties (sd)
+modelclass.py - contains the forecast model to simulate from. Uncertainties considerable in the simulation:
+                Process (sigma) and observation error. Parameter uncertainties (sd)
+baseline.py - the evaluation baseline for the experiment, i.e. the 'true' or 'potential' EFH. Prediction of the model EFH with
+               various approaches in a perfect model setting, using simulated observations as reference.
+profiency_metrics.py - contains a range of proficiency metrics to select for EFH computation.
+dynamics.py - functions related to the model and system dynamics.
+main.py - currently a spin-off from baseline.py REWORK, not useable.
 
 #=========================#
 # Simulate reference data #
@@ -15,31 +19,6 @@ We plot these time series and then split it into a training and test set.
 
 Important decisions:
 - What does the reference data look like? Where do we have it from?
-
-#==============================#
-# Fit the model to 'real' data #
-#==============================#
-
-Here, we want to infer the growth rate of a set of time series, that we assume descend from the same population
-from the data.
-We therefore make prior assumptions about the process/observation error (sigma).
-We also define a prior for the growth rate (mean) and its uncertainty (sd).
-We receive posterior distributions for parameters and process error, as well as a posterior
-predictive distribution for y.
-
-Important decisions:
-- Assumptions about the priors.
-- Constant or dynamic growth rate r.
-- Sampling algorithm.
-
-#=====================================#
-# Forecast with the fit model to test #
-#=====================================#
-
-We use these posterior distributions to forecast to the test data.
-
-Important decisions:
-- Metric to evaluate forecast.
 
 
 
