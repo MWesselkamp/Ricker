@@ -64,26 +64,49 @@ fig = plt.figure()
 plt.plot(np.transpose(corrs))
 fig.show()
 
-def efh_mean(profiencies, threshold):
+def efh_mean(metric, profiencies, threshold, ps = False):
     """
     1. Function parameter: threshold.
     """
+    profiencies_mean = profiencies.mean(axis=0)
 
-    def empCL(x, percent):
-        ex = np.sort(x)[np.floor(percent / 100 * len(x)).astype(int)]
-        return (ex)
+    if metric == 'corr':
+        efh = np.array([i < threshold for i in profiencies])
+        pred_skills = np.argmax(profiencies < threshold, axis=1)
+        #mean_pred_skill = min(np.arange(profiencies.shape[1])[profiencies_mean < threshold])
+    elif metric == 'mse':
+        efh = np.array([i > threshold for i in profiencies])
+        pred_skills = np.argmax(profiencies > threshold, axis=1)
+        # pred_skills = [min(np.arange(profiencies.shape[1])[efh[i,:]]) for i in range(profiencies.shape[0])]
+        # mean_pred_skill = min(np.arange(profiencies.shape[1])[profiencies_mean > threshold])
 
-    q_lower = [empCL(profiencies[:, i], 45) for i in range(profiencies.shape[1])]
-    q_mid = [empCL(profiencies[:, i], 50) for i in range(profiencies.shape[1])]
-    q_upper = [empCL(profiencies[:, i], 55) for i in range(profiencies.shape[1])]
+    b = [np.sum(efh, axis=1) == 0]  # get the rows where the efh is never reached
+    pred_skills[b] = profiencies.shape[1] # replace by maximum efh
 
-    efh = np.array([i < threshold for i in profiencies])
-    corrs_mean = corrs.mean(axis=0)
-    min_pred_skill = min(np.arange(profiencies.shape[1])[corrs_mean < threshold])
+    if ps:
+        return pred_skills
+    else:
+        return efh, pred_skills#, mean_pred_skill
 
-    return efh, min_pred_skill
+efh_mse, pred_skills  = efh_mean('mse', mse_rolling, 0.5)
+fig = plt.figure()
+plt.pcolor(efh_mse)
+fig.show()
 
-efh_corr, efh_corr_min = efh_mean(corrs, 0.5)
+
+threshold_seq = np.linspace(initial_uncertainty, 1, 20)
+efhs_mse = np.array([efh_mean('mse', mse_rolling, t, ps=True) for t in threshold_seq])
+
+fig = plt.figure()
+ax = fig.add_subplot()
+plt.plot(threshold_seq, efhs_mse, color="lightblue")
+plt.plot(threshold_seq, np.mean(efhs_mse, axis=1), color="darkblue")
+ax.set_xlabel('MSE threshold for acceptance')
+ax.set_ylabel('Predicted forecast horizon')
+fig.show()
+
+
+efh_corr, efh_corr_min = efh_mean('corr', corrs, 0.5)
 fig = plt.figure()
 plt.pcolor(efh_corr)
 fig.show()
@@ -103,6 +126,15 @@ def efh_quantile(metric, accepted_error, actual_error, timesteps, quantiles = (0
                                                             0.5 for correlation.
                                                             Currently initial uncertainty for MSE and absDiff
     """
+    # Petcheys empirical Confidence Intervalls.
+    def empCL(x, percent):
+        ex = np.sort(x)[np.floor(percent / 100 * len(x)).astype(int)]
+        return (ex)
+    q_lower = [empCL(actual_error[:, i], quantiles[0]*100) for i in range(actual_error.shape[1])]
+    q_mid = [empCL(actual_error[:, i], 50) for i in range(actual_error.shape[1])]
+    q_upper = [empCL(actual_error[:, i], quantiles[1]*100) for i in range(actual_error.shape[1])]
+
+    # Simply taking Quantiles
     error_metrics = ['mse', 'abs_diff']
     qu = np.quantile(actual_error, (quantiles[0], quantiles[1]), axis=0)
     efh = []
@@ -149,15 +181,43 @@ t_stats, p_vals = proficiency_metrics.t_statistic(abs_diff, initial_uncertainty)
 lyapunovs = dynamics.lyapunovs(perfect_ensemble_derivative_d)
 lyapunovs_stepwise = dynamics.lyapunovs(perfect_ensemble_derivative_d, stepwise=True)
 
-Delta_range = np.linspace(initial_uncertainty, abs_diff.max()*2, 40)
+l = 50
+Delta_range = np.linspace(initial_uncertainty*1000, abs_diff.max(), l)
+delta_range = np.linspace(initial_uncertainty, initial_uncertainty*100, l)
 
-predicted_efh = np.array([dynamics.lyapunov_efh(lyapunovs, Delta, initial_uncertainty) for Delta in Delta_range])
-vizualisations.plot_LE_efh_along_Delta(Delta_range, predicted_efh)
+predicted_efh = np.array([dynamics.efh_lyapunov(lyapunovs, Delta, delta) for Delta in Delta_range for delta in delta_range])
+predicted_efh = predicted_efh.reshape((l, l, 50))
+predicted_efh_m = np.mean(predicted_efh, axis=2)
+
+fig = plt.figure()
+ax = fig.add_subplot()
+for i in range(ensemble_size):
+    plt.plot(Delta_range, predicted_efh[:,:,i], color="lightblue")
+plt.plot(Delta_range, predicted_efh_m, color="darkblue")
+plt.plot(Delta_range, np.mean(predicted_efh_m, axis=1), color="yellow")
+ax.set_xlabel('Forecast proficiency threshold ($\Delta$)')
+ax.set_ylabel('Predicted forecast horizon')
+fig.show()
 
 
-#=================================================#
-# Forecast horizon based on  Spring & Ilyina 2018 #
-#=================================================#
+predicted_efh = np.array([dynamics.efh_lyapunov(lyapunovs, Delta, delta) for delta in delta_range for Delta in Delta_range])
+predicted_efh = predicted_efh.reshape((l, l, 50))
+predicted_efh_m = np.mean(predicted_efh, axis=2)
+
+fig = plt.figure()
+ax = fig.add_subplot()
+for i in range(ensemble_size):
+    plt.plot(delta_range, predicted_efh[:,:,i], color="lightblue")
+plt.plot(delta_range, predicted_efh_m, color="darkblue")
+plt.plot(delta_range, np.mean(predicted_efh_m, axis=1), color="yellow")
+ax.set_xlabel('Initial uncertainty ($\delta$)')
+ax.set_ylabel('Predicted forecast horizons')
+fig.show()
+
+
+#================================================================#
+# Forecast horizon based on  Spring & Ilyina 2018 / Goddard 2013 #
+#================================================================#
 
 # Required: Bootstrap perfect ensemble function:
 # Required: Skill metric (default: Pearsons r.)
