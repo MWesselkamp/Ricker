@@ -14,7 +14,7 @@ def lyapunovs(timeseries_derivative, stepwise = False):
         lyapunovs = np.mean(np.log(abs(timeseries_derivative)), axis=1)
     return lyapunovs
 
-def efh_lyapunov(lyapunovs, Delta, delta):
+def efh_lyapunov(lyapunovs, Delta, delta, fix=False):
     """
     Calculate the forecast horizon with the Lyapunov time (Petchey 2015).
     :param lyapunovs:
@@ -23,5 +23,8 @@ def efh_lyapunov(lyapunovs, Delta, delta):
     :return: EFH
     """
     # np.multiply.outer(1/lyapunovs,np.log(precision/dell0))
-    return np.multiply(1/lyapunovs,np.log(Delta/delta))
+    if fix:
+        return np.multiply(1 / lyapunovs, np.log(fix))
+    else:
+        return np.multiply(1/lyapunovs,np.log(Delta/delta))
 

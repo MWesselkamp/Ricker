@@ -9,7 +9,20 @@ def historic_mean(x_test, x_train, length = 'test'):
     historic_var = np.full((length), np.std(x_train), dtype=np.float)
     return historic_mean, historic_var
 
+def create_quantiles(n, max):
+    u = 0.5 + np.linspace(0, max, n+1)
+    l = 0.5 - np.linspace(0, max, n+1)
+    r = np.array((l, u)).T
+    return r[1:,]
 
+def min_Delta(initial_uncertainty_estimate):
+    min_D = initial_uncertainty_estimate/np.exp(-1)
+    return min_D
 
+def fixed_Tp_Delta(lyapunovs, Tp, delta):
+    Tp_Delta = np.array([delta*np.exp(lya*Tp) for lya in lyapunovs])
+    return Tp_Delta
 
-
+def fixed_Tp_delta(lyapunovs, Tp, Delta):
+    Tp_delta = np.array([Delta/np.exp(lya*Tp) for lya in lyapunovs])
+    return Tp_delta

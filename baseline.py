@@ -3,6 +3,7 @@ import modelclass
 import utils
 import proficiency_metrics
 import vizualisations
+import horizons
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -42,207 +43,116 @@ perfect_ensemble, perfect_ensemble_derivative = simulator.simulate(ensemble_size
 simulator.initial = True
 perfect_ensemble_d, perfect_ensemble_derivative_d = simulator.simulate(ensemble_size) # resulting trajectories now slightly differ!
 
-#===============================#
-# The horizon with Quantiles    #
-#===============================#
+ts_true[0]
+dell_0 = abs(perfect_ensemble_d[:,0]-ts_true[0])
+
+vizualisations.plot_trajectories(perfect_ensemble_d, its, np.mean(perfect_ensemble_d, axis=0))
+
+#===============#
+# Mean horizon  #
+#===============#
 
 # Choose a forecast proficiency metric
-# 1. Absolute difference to truth.
+
+# 1. Absolute difference
 abs_diff, abs_diff_mean = proficiency_metrics.absolute_difference(ts_true, perfect_ensemble_d, mean = True)
 vizualisations.FP_absdifferences(abs_diff, abs_diff_mean, its)
 
-# 2. Rolling MSE
+efh_abs = np.array([i > 1 for i in abs_diff])
+fig = plt.figure()
+plt.pcolor(efh_abs)
+fig.show()
+
+threshold_seq = np.linspace(initial_uncertainty, abs_diff.max(), 20)
+efhs_absdiff = np.array([horizons.efh_mean('abs_diff', abs_diff, t, ps=True) for t in threshold_seq])
+vizualisations.plot_mean_efh_varying_thresholds('absdiff', threshold_seq, efhs_absdiff, 'Absolut difference')
+
+
+# 2. Mean squared error
 # Metric Parameter: Moving window
 mse = proficiency_metrics.mean_squared_error(ts_true, perfect_ensemble_d)
 mse_rolling = proficiency_metrics.mean_squared_error_rolling(ts_true, perfect_ensemble_d)
 
-# 3. Rolling Correlation
-# Metric Parameter: Moving window of size 3 (Petchey.)
-corrs = proficiency_metrics.rolling_corrs(ts_true, perfect_ensemble_d, window=3)
-#corrr = np.transpose(np.array(corr))
-fig = plt.figure()
-plt.plot(np.transpose(corrs))
-fig.show()
-
-def efh_mean(metric, profiencies, threshold, ps = False):
-    """
-    1. Function parameter: threshold.
-    """
-    profiencies_mean = profiencies.mean(axis=0)
-
-    if metric == 'corr':
-        efh = np.array([i < threshold for i in profiencies])
-        pred_skills = np.argmax(profiencies < threshold, axis=1)
-        #mean_pred_skill = min(np.arange(profiencies.shape[1])[profiencies_mean < threshold])
-    elif metric == 'mse':
-        efh = np.array([i > threshold for i in profiencies])
-        pred_skills = np.argmax(profiencies > threshold, axis=1)
-        # pred_skills = [min(np.arange(profiencies.shape[1])[efh[i,:]]) for i in range(profiencies.shape[0])]
-        # mean_pred_skill = min(np.arange(profiencies.shape[1])[profiencies_mean > threshold])
-    b = [np.sum(efh, axis=1) == 0]  # get the rows where the efh is never reached
-    pred_skills[b] = profiencies.shape[1] # replace by maximum efh
-
-    if ps:
-        return pred_skills
-    else:
-        return efh, pred_skills#, mean_pred_skill
-
-efh_mse, pred_skills  = efh_mean('mse', mse_rolling, 0.5)
+efh_mse, pred_skills  = horizons.efh_mean('mse', mse_rolling, 0.5)
 fig = plt.figure()
 plt.pcolor(efh_mse)
 fig.show()
 
 # Predict Forecast horizon under varying threshold for proficiency metrics.
+threshold_seq = np.linspace(initial_uncertainty, 1.5, 20)
+efhs_mse = np.array([horizons.efh_mean('mse', mse_rolling, t, ps=True) for t in threshold_seq])
+vizualisations.plot_mean_efh_varying_thresholds('mse', efhs_mse, threshold_seq, 'MSE','lower right')
+
+# 3. Correlation
+# Metric Parameter: Moving window of size 3 (Petchey.)
+corrs = proficiency_metrics.rolling_corrs(ts_true, perfect_ensemble_d, window=3)
+vizualisations.FP_correlation(corrs)
+
 threshold_seq = np.linspace(initial_uncertainty, 1, 20)
-efhs_mse = np.array([efh_mean('mse', mse_rolling, t, ps=True) for t in threshold_seq])
-
-fig = plt.figure()
-ax = fig.add_subplot()
-plt.plot(threshold_seq, efhs_mse, color="lightblue")
-plt.plot(threshold_seq, np.mean(efhs_mse, axis=1), color="darkblue")
-ax.set_xlabel('MSE threshold for acceptance')
-ax.set_ylabel('Predicted forecast horizon')
-fig.show()
-fig.savefig(f'plots/baseline/efh_mean/mse_threshold.png')
-
-
-efh_corr, efh_corr_min = efh_mean('corr', corrs, 0.5)
-efhs_corrs = np.array([efh_mean('corr', corrs, t, ps=True) for t in threshold_seq])
-
-fig = plt.figure()
-ax = fig.add_subplot()
-plt.plot(threshold_seq, efhs_corrs, color="lightblue")
-plt.plot(threshold_seq, np.mean(efhs_corrs, axis=1), color="darkblue")
-ax.set_xlabel('Correlation threshold for acceptance')
-ax.set_ylabel('Predicted forecast horizon')
-fig.show()
-fig.savefig(f'plots/baseline/efh_mean/corr_threshold.png')
-
+efh_corr, efh_corr_min = horizons.efh_mean('corr', corrs, 0.5)
+efhs_corrs = np.array([horizons.efh_mean('corr', corrs, t, ps=True) for t in threshold_seq])
+vizualisations.plot_mean_efh_varying_thresholds('corr', efhs_corrs, threshold_seq, 'Pearsons R','lower left')
 
 # For the correlation now consider the moving window as additional parameter.
 mcorrs  = []
-for wind in range(3,10):
+window = np.arange(3, 10)
+for wind in window:
     mcorrs.append(proficiency_metrics.rolling_corrs(ts_true, perfect_ensemble_d, window=wind))
-efhs_mcorrs = np.array([efh_mean('corr', mcorrs[i], t, ps=True) for t in threshold_seq for i in range(len(mcorrs))])
-
+efhs_mcorrs = np.array([horizons.efh_mean('corr', mcorrs[i], t, ps=True) for t in threshold_seq for i in range(len(mcorrs))])
 efhs_mcorrs = efhs_mcorrs.reshape(20, 7, ensemble_size)
 ehfs_mcorrs_m = np.mean(efhs_mcorrs, axis=2)
-
-fig = plt.figure()
-ax = fig.add_subplot()
-for i in range(ensemble_size):
-    plt.plot(threshold_seq, efhs_mcorrs[:,:,i], color="lightblue")
-plt.plot(threshold_seq, ehfs_mcorrs_m, color="darkblue")
-plt.plot(threshold_seq, np.mean(ehfs_mcorrs_m, axis=1), color="yellow")
-ax.set_xlabel('Correlation threshold for acceptance')
-ax.set_ylabel('Predicted forecast horizon')
-fig.show()
-fig.savefig(f'plots/baseline/efh_mean/corr_threshold_window.png')
-
-# We require a second function parameter: The correlation strongly meanders around the threshold.
-# For example: The EFH is the mean time after which the correlations falls below the threshold for at least three time steps in a row.
-# Three days is super randomly?!
-# Simply summarize this (following the definiton of Petchey: empirical confidence intervalls, or quantiles - looks very similar.)
+vizualisations.plot_efh_varying_thresholds_HP('corr', efhs_mcorrs, ehfs_mcorrs_m, threshold_seq, ensemble_size)
 
 
-# Quantile Horizon
-def efh_quantile(metric, accepted_error, actual_error, timesteps, quantiles = (0.01, 0.99), ps = False):
-    """
-    1. Function parameter: What quantiles to use?
-    2. What is the "expected error"
-    """
-    # Petcheys empirical Confidence Intervalls.
-    def empCL(x, percent):
-        ex = np.sort(x)[np.floor(percent / 100 * len(x)).astype(int)]
-        return (ex)
-    q_lower = [empCL(actual_error[:, i], quantiles[0]*100) for i in range(actual_error.shape[1])]
-    q_mid = [empCL(actual_error[:, i], 50) for i in range(actual_error.shape[1])]
-    q_upper = [empCL(actual_error[:, i], quantiles[1]*100) for i in range(actual_error.shape[1])]
-    # Simply taking Quantiles
-    error_metrics = ['mse', 'abs_diff']
-    qu = np.quantile(actual_error, (quantiles[0], quantiles[1]), axis=0)
-    efh = []
-    for i in range(timesteps):
-        if metric in error_metrics:
-            e = not (min(qu[0, i], qu[1, i]) < accepted_error < max(qu[0, i], qu[1, i])) | ((min(qu[0, i], qu[1, i]) < accepted_error) & (max(qu[0, i], qu[1, i]) < accepted_error))
-        elif metric == 'cor':
-            e = (min(qu[0, i], qu[1, i]) < accepted_error < max(qu[0, i], qu[1, i])) | ((min(qu[0, i], qu[1, i]) < accepted_error) & (max(qu[0, i], qu[1, i]) < accepted_error))
-        efh.append(e)
-    if np.sum(efh) == 0:
-        min_pred_skill = timesteps
-    else:
-        min_pred_skill = min(np.arange(len(efh))[efh])
-    if ps:
-        return min_pred_skill
-    else:
-        return efh, min_pred_skill
+#==================#
+# Quantile horizon #
+#==================#
 
+# 1. Correlation
+potential_fh = np.argmax(ehfs_mcorrs_m, axis=1)
+print(potential_fh)
+potential_fh = dict(zip(threshold_seq, window[potential_fh]))
+print("Potential FH along varying proficiency thresholds: ", potential_fh)
 
-efh_corrs, efh_corrs_min  = efh_quantile('cor', 0.5, corrs, corrs.shape[1])
-efh_corrs2, efh_corrs2_min = efh_quantile('cor', 0.5, corrs, corrs.shape[1], quantiles=(0.45, 0.55))
+efh_corrs, efh_corrs_min  = horizons.efh_quantile('cor', 0.5, corrs, corrs.shape[1])
+efh_corrs2, efh_corrs2_min = horizons.efh_quantile('cor', 0.5, corrs, corrs.shape[1], quantiles=(0.45, 0.55))
 fig = plt.figure()
 plt.plot(efh_corrs)
 plt.plot(efh_corrs2)
 fig.show()
 
 # For varying threshold
-def create_quantiles(n, max):
-    u = 0.5 + np.linspace(0, max, n+1)
-    l = 0.5 - np.linspace(0, max, n+1)
-    r = np.array((l, u)).T
-    return r[1:,]
-
-qs = create_quantiles(20, max = 0.49)
-efh_corrs_ps = np.array([efh_quantile('cor', j, corrs, corrs.shape[1], ps=True, quantiles=qs[q,:]) for j in threshold_seq for q in range(len(qs))])
+qs = utils.create_quantiles(20, max = 0.49)
+efh_corrs_ps = np.array([horizons.efh_quantile('cor', j, corrs, corrs.shape[1], ps=True, quantiles=qs[q,:]) for j in threshold_seq for q in range(len(qs))])
 efh_corrs_ps = efh_corrs_ps.reshape(20,20)
+vizualisations.plot_quantile_efh('corr', efh_corrs_ps, threshold_seq, title="Correlation")
 
-fig = plt.figure()
-ax = fig.add_subplot()
-plt.plot(threshold_seq, efh_corrs_ps, color="lightblue")
-plt.plot(threshold_seq, np.mean(efh_corrs_ps, axis=1), color="darkblue")
-ax.set_xlabel('Correlation threshold for acceptance')
-ax.set_ylabel('Predicted forecast horizon')
-fig.show()
-fig.savefig(f'plots/baseline/efh_quantile/corr_threshold.png')
+# 2. Absolute differences
 
-
-efh_abs_diff, efh_abs_diff_min = efh_quantile('abs_diff', initial_uncertainty, abs_diff, its)
+efh_abs_diff, efh_abs_diff_min = horizons.efh_quantile('abs_diff', initial_uncertainty, abs_diff, its)
 fig = plt.figure()
 plt.plot(efh_abs_diff)
 fig.show()
 # For varying threshold
-efh_abs_diff_ps = np.array([efh_quantile('abs_diff', i, abs_diff, its, ps=True, quantiles=qs[q,:]) for i in threshold_seq for q in range(len(qs))])
+efh_abs_diff_ps = np.array([horizons.efh_quantile('abs_diff', i, abs_diff, its, ps=True, quantiles=qs[q,:]) for i in threshold_seq for q in range(len(qs))])
 efh_abs_diff_ps = efh_abs_diff_ps.reshape(20,20)
 fig = plt.figure()
 ax = fig.add_subplot()
-plt.plot(threshold_seq, efh_abs_diff_ps, color="lightblue")
-plt.plot(threshold_seq, np.mean(efh_abs_diff_ps, axis=1), color="darkblue")
-ax.set_xlabel('Absolute difference threshold for acceptance')
-ax.set_ylabel('Predicted forecast horizon')
-fig.show()
-fig.savefig(f'plots/baseline/efh_quantile/absdiff_threshold.png')
+vizualisations.plot_quantile_efh('absdiff', efh_corrs_ps, threshold_seq, title="Absolute differences")
 
+# 2. Mean squared error
 
-efh_mse_rolling, efh_mse_rolling_min = efh_quantile('mse', initial_uncertainty, mse_rolling, its)
-fig = plt.figure()
-plt.plot(efh_mse_rolling)
-fig.show()
+threshold_seq = np.linspace(initial_uncertainty, 1.5, 20)
+efh_mse_rolling, efh_mse_rolling_min = horizons.efh_quantile('mse', initial_uncertainty, mse_rolling, its)
 # For varying threshold
-efh_mse_ps  = np.array([efh_quantile('mse', i, mse_rolling, its, ps=True, quantiles=qs[q,:]) for i in threshold_seq for q in range(len(qs))])
+efh_mse_ps  = np.array([horizons.efh_quantile('mse', i, mse_rolling, its, ps=True, quantiles=qs[q,:]) for i in threshold_seq for q in range(len(qs))])
 efh_mse_ps = efh_mse_ps.reshape(20,20)
-fig = plt.figure()
-ax = fig.add_subplot()
-plt.plot(threshold_seq, efh_mse_ps, color="lightblue")
-plt.plot(threshold_seq, np.mean(efh_mse_ps, axis=1), color="darkblue")
-ax.set_xlabel('MSE threshold for acceptance')
-ax.set_ylabel('Predicted forecast horizon')
-fig.show()
-fig.savefig(f'plots/baseline/efh_quantile/mse_threshold.png')
+vizualisations.plot_quantile_efh('mse', efh_mse_ps, threshold_seq, title="MSE", label="Mean optimal FH")
 
-
-# t-test Statistics
+#===============#
+# t-test horizon#
+#===============#
 t_stats, p_vals = proficiency_metrics.t_statistic(abs_diff, initial_uncertainty) # Where p-value is smaller than threshold.
-
 
 #===============================#
 # The Lyapunov forecast horizon #
@@ -251,39 +161,98 @@ t_stats, p_vals = proficiency_metrics.t_statistic(abs_diff, initial_uncertainty)
 lyapunovs = dynamics.lyapunovs(perfect_ensemble_derivative_d)
 lyapunovs_stepwise = dynamics.lyapunovs(perfect_ensemble_derivative_d, stepwise=True)
 
-l = 50
-Delta_range = np.linspace(initial_uncertainty*1000, abs_diff.max(), l)
-delta_range = np.linspace(initial_uncertainty, initial_uncertainty*100, l)
+l = 30
+initial_uncertainty_estimate = np.mean(abs((perfect_ensemble_d[:,0]-ts_true[0])))
+
+min_D = utils.min_Delta(initial_uncertainty_estimate)
+Delta_range = np.linspace(min_D, abs_diff.max(), l)
+delta_range = np.linspace(initial_uncertainty_estimate, initial_uncertainty_estimate*1000, l)
+
+vizualisations.ln_deltaRatio(delta_range, Delta_range, l)
+
 
 predicted_efh = np.array([dynamics.efh_lyapunov(lyapunovs, Delta, delta) for Delta in Delta_range for delta in delta_range])
 predicted_efh = predicted_efh.reshape((l, l, ensemble_size))
 predicted_efh_m = np.mean(predicted_efh, axis=2)
-
-fig = plt.figure()
-ax = fig.add_subplot()
-for i in range(ensemble_size):
-    plt.plot(Delta_range, predicted_efh[:,:,i], color="lightblue")
-plt.plot(Delta_range, predicted_efh_m, color="darkblue")
-plt.plot(Delta_range, np.mean(predicted_efh_m, axis=1), color="yellow")
-ax.set_xlabel('Forecast proficiency threshold ($\Delta$)')
-ax.set_ylabel('Predicted forecast horizon')
-fig.savefig(r'plots/baseline/efh_lyapunov/delta_U.png')
-fig.show()
+vizualisations.delta_U(Delta_range, predicted_efh, predicted_efh_m, ensemble_size)
 
 predicted_efh = np.array([dynamics.efh_lyapunov(lyapunovs, Delta, delta) for delta in delta_range for Delta in Delta_range])
 predicted_efh = predicted_efh.reshape((l, l, 50))
 predicted_efh_m = np.mean(predicted_efh, axis=2)
+vizualisations.delta_L(delta_range, predicted_efh, predicted_efh_m, ensemble_size)
+
+
+potential_fh = np.max(predicted_efh_m, axis=1)
+potential_fh_roc = abs(potential_fh[1:]-potential_fh[:-1])
+print("Potential forecast horizon at varying initial uncertainties:", potential_fh)
+print("Rates of change potential FH: ", potential_fh_roc)
+print("Potential forecast horizon at varying initial uncertainties for a Delta of:", Delta_range[np.argmax(predicted_efh_m, axis=1)[0]])
+
+vizualisations.potential_fh_roc(potential_fh_roc, delta_range)
+
+# For a fixed Horizon that we want to reach, e.g 20
+Tp = 20
+tp_Delta = utils.fixed_Tp_Delta(lyapunovs, Tp, delta_range)
+tp_delta = utils.fixed_Tp_delta(lyapunovs, Tp, Delta_range)
+vizualisations.fixed_Tp_delta(delta_range, Delta_range, tp_Delta, tp_delta)
+
+#======================================#
+# Lyapunov EFH under varying r values  #
+#======================================#
+
+len_r_values = 30
+r_values = np.linspace(0.2, 8, len_r_values)
+l = 50
+Delta_range = np.linspace(initial_uncertainty_estimate, 2, l)
+delta = initial_uncertainty_estimate
+fix_lin1 = np.linspace(0.1, 1, l)
+fix_lin2 = np.linspace(1, 2.5, l)
+# Initalize model
+ricker = modelclass.Ricker(initial_size, initial_uncertainty)
+predicted_efhs_ms = []
+predicted_efhs_fix1_ms = []
+predicted_efhs_fix2_ms = []
+lyapunovs = []
+
+for r in r_values:
+
+    theta = {'r':r, 'sigma':0.3}
+    ricker = modelclass.Ricker(initial_size, initial_uncertainty)
+    ricker.set_parameters(theta = theta)
+    #ricker.print_parameters()
+    simulator = modelclass.Simulation(ricker, iterations=its) # Create a simulator object
+    # To simulate the baseline ensemble
+    simulator.sources_of_uncertainty(parameters=False,
+                                    initial = True,
+                                    observation = False,
+                                    stoch = False)
+    perfect_ensemble_d, perfect_ensemble_derivative_d = simulator.simulate(ensemble_size)
+    lyas = dynamics.lyapunovs(perfect_ensemble_derivative_d)
+    lyapunovs.append(lyas)
+
+    predicted_efh = np.array([dynamics.efh_lyapunov(lyas, Delta, delta) for Delta in Delta_range])
+    predicted_efh_fix1 = np.array([dynamics.efh_lyapunov(lyas, Delta=None, delta=None, fix = fix) for fix in fix_lin1])
+    predicted_efh_fix2 = np.array([dynamics.efh_lyapunov(lyas, Delta=None, delta=None, fix=fix) for fix in fix_lin2])
+
+    predicted_efhs_ms.append(np.mean(predicted_efh, axis=1))
+    predicted_efhs_fix1_ms.append(np.mean(predicted_efh_fix1, axis=1))
+    predicted_efhs_fix2_ms.append(np.mean(predicted_efh_fix2, axis=1))
+
+predicted_efhs_ms = np.array(predicted_efhs_ms)
+predicted_efhs_fix1_ms = np.array(predicted_efhs_fix1_ms)
+predicted_efhs_fix2_ms = np.array(predicted_efhs_fix2_ms)
+lyapunovs = np.array(lyapunovs)
+
+vizualisations.lyapunov_time(predicted_efhs_ms, r_values)
+vizualisations.lyapunov_time_modifier_effect(r_values, predicted_efhs_fix1_ms, predicted_efhs_fix2_ms)
+vizualisations.lyapunovs_along_r(r_values, lyapunovs)
 
 fig = plt.figure()
 ax = fig.add_subplot()
-for i in range(ensemble_size):
-    plt.plot(delta_range, predicted_efh[:,:,i], color="lightblue")
-plt.plot(delta_range, predicted_efh_m, color="darkblue")
-plt.plot(delta_range, np.mean(predicted_efh_m, axis=1), color="yellow")
-ax.set_xlabel('Initial uncertainty ($\delta$)')
-ax.set_ylabel('Predicted forecast horizon')
-fig.savefig(r'plots/baseline/efh_lyapunov/delta_L.png')
+plt.plot(np.transpose(perfect_ensemble_derivative_d), color="lightgrey")
 fig.show()
+
+
 #================================================================#
 # Forecast horizon based on  Spring & Ilyina 2018 / Goddard 2013 #
 #================================================================#

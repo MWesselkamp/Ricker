@@ -83,11 +83,11 @@ if plot_results:
 
 # Use performance of historic mean as forecast proficiency threshold.
 historic_mean, historic_var = utils.historic_mean(x_test, x_train, length=its)
-fpt_hm = utils.rmse(timeseries, historic_mean)
+#fpt_hm = utils.rmse(timeseries, historic_mean)
 
-fed_estimated_params = utils.forecast_rmse(timeseries, preds_ensemble_estimated, test_index=0)
-fed_perfect_model = utils.forecast_rmse(timeseries, preds_ensemble_perfect, test_index = 0)
-vizualisations.FP_rmse(fed_perfect_model, fpt_hm, 'both', mat2=fed_perfect_model)
+#fed_estimated_params = utils.forecast_rmse(timeseries, preds_ensemble_estimated, test_index=0)
+#fed_perfect_model = utils.forecast_rmse(timeseries, preds_ensemble_perfect, test_index = 0)
+#vizualisations.FP_rmse(fed_perfect_model, fpt_hm, 'both', mat2=fed_perfect_model)
 
 #===================================#
 # Forecast proficiency: Correlation #
@@ -95,20 +95,20 @@ vizualisations.FP_rmse(fed_perfect_model, fpt_hm, 'both', mat2=fed_perfect_model
 # When the mean of the forecast distribution falls below the forecast proficiency threshold.
 # Example: Correlation in a moving window of size 3, threshold 0.5.
 
-fpt_corr = 0.5
-fcors_estimated_params = utils.rolling_corrs(timeseries, preds_ensemble_estimated, test_index=0)
-fcors_perfect_model = utils.rolling_corrs(timeseries, preds_ensemble_perfect, test_index=0)
-vizualisations.FP_correlation(fcors_perfect_model, fpt_corr, 'both', mat2= fcors_perfect_model)
+#fpt_corr = 0.5
+#fcors_estimated_params = utils.rolling_corrs(timeseries, preds_ensemble_estimated, test_index=0)
+#fcors_perfect_model = utils.rolling_corrs(timeseries, preds_ensemble_perfect, test_index=0)
+#vizualisations.FP_correlation(fcors_perfect_model, fpt_corr, 'both', mat2= fcors_perfect_model)
 
 #=============================================#
 # Forecast proficiency: Absolute differences  #
 #=============================================#
 
-absolute_differences = np.transpose(abs(np.subtract(timeseries, preds_ensemble_perfect)))
-absolute_differences_mean = np.mean(absolute_differences, axis=1)
+#absolute_differences = np.transpose(abs(np.subtract(timeseries, preds_ensemble_perfect)))
+#absolute_differences_mean = np.mean(absolute_differences, axis=1)
 
-vizualisations.FP_absdifferences(absolute_differences, absolute_differences_mean, its)
-vizualisations.FP_absdifferences(absolute_differences, absolute_differences_mean, its, log=True)
+#vizualisations.FP_absdifferences(absolute_differences, absolute_differences_mean, its)
+#vizualisations.FP_absdifferences(absolute_differences, absolute_differences_mean, its, log=True)
 
 # threshold?
 
@@ -122,10 +122,10 @@ lyapunovs_full = lyapunovs[-1,:]
 
 # Absolute Differences as forecast profieciency
 # Maximum difference:
-Delta_max = absolute_differences.max()
+Delta_max = abs_diff.max()
 Delta_range = np.linspace(ensemble_uncertainty, Delta_max, 40)
 
-predicted_efh = np.array([utils.lyapunov_efh(lyapunovs_full, Delta, ensemble_uncertainty) for Delta in Delta_range])
+predicted_efh = np.array([dynamics.efh_lyapunov(lyapunovs_full, Delta, ensemble_uncertainty) for Delta in Delta_range])
 
 
 # RMS as Forecast proficiency
@@ -155,7 +155,7 @@ plot_results = True
 vizualisations.plot_lyapunov_exponents(r_values, true_lyapunovs, predicted_lyapunovs)
 
 precision_threshold = 0.8 # under varying precision?
-predicted_efhs = dynamics.lyapunov_efh(predicted_lyapunovs, precision_threshold, ensemble_uncertainty)
+predicted_efhs = dynamics.efh_lyapunov(predicted_lyapunovs, precision_threshold, ensemble_uncertainty)
 
 vizualisations.plot_lyapunov_efhs(r_values, predicted_efhs)
 vizualisations.plot_lyapunov_efhs(r_values, predicted_efhs, log = True)
