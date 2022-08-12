@@ -5,7 +5,7 @@ matplotlib.use('module://backend_interagg')
 
 import vizualisations
 import utils
-import model
+from code_graveyard import model
 import fit
 import dynamics
 import numpy as np
@@ -30,8 +30,8 @@ ensemble_size = 10
 ensemble_uncertainty = 1e-5
 
 timeseries, timeseries_lyapunovs = model.ricker_simulate(1, its, theta_true,
-                                             init = (initial_population_mean, initial_uncertainty),
-                                             obs_error=False)
+                                                         init = (initial_population_mean, initial_uncertainty),
+                                                         obs_error=False)
 
 x_train = timeseries[:train_size]
 x_test = timeseries[test_index:]
@@ -52,19 +52,19 @@ historic_mean, historic_var = utils.historic_mean(x_test, x_train)
 
 # 2. Forecast with Ricker and fitted params
 preds_single_estimated, lyapunovs_single_estimated = model.ricker_simulate(1, its, theta_hat,
-                                            init=(initial_population_mean, 0))
+                                                                           init=(initial_population_mean, 0))
 
 # 2. 1. Forecast with ensemble of initial conditions.
 preds_ensemble_estimated, lyapunovs_ensemble_estimated = model.ricker_simulate(ensemble_size, its, theta_hat,
-                                                 init=(initial_population_mean, ensemble_uncertainty))
+                                                                               init=(initial_population_mean, ensemble_uncertainty))
 
 # 3. Forecast with Ricker and known params
 preds_single_perfect, lyapunovs_single_perfect = model.ricker_simulate(1, its, theta_true,
-                                            init=(initial_population_mean, 0))
+                                                                       init=(initial_population_mean, 0))
 
 # 3. 1. Forecast with ensemble of initial conditions.
 preds_ensemble_perfect, lyapunovs_ensemble_perfect = model.ricker_simulate(ensemble_size, its, theta_true,
-                                               init=(initial_population_mean, ensemble_uncertainty))
+                                                                           init=(initial_population_mean, ensemble_uncertainty))
 
 #==============#
 # Plot results #
@@ -139,13 +139,13 @@ len_r_values = 30
 r_values = np.linspace(0.001, 4.0, len_r_values)
 
 true = list(zip(*[model.ricker_simulate(1, its, {'r':r, 'sigma':None},
-                                             init = (initial_population_mean, initial_uncertainty)) for r in r_values]))
+                                        init = (initial_population_mean, initial_uncertainty)) for r in r_values]))
 true_timeseries = np.array(true[0])
 true_lyapunovs = np.mean(np.array(true[1]).reshape(len_r_values, its), axis=1) # only last calculated Lyapunov exponent
 
 
 predicted = list(zip(*[model.ricker_simulate(ensemble_size, its, {'r':r, 'sigma':None},
-                                    init = (initial_population_mean, ensemble_uncertainty)) for r in r_values]))
+                                             init = (initial_population_mean, ensemble_uncertainty)) for r in r_values]))
 
 predicted_timeseries = np.array(predicted[0])
 predicted_lyapunovs = np.mean(np.array(predicted[1]), axis=2)

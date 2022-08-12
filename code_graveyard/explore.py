@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib
 import matplotlib.pyplot as plt
 import model
 
@@ -17,7 +16,7 @@ timeseries = np.full((its, len_r_values), N, dtype=np.float)
 
 for i in range(len_r_values):
     for j in range(its):
-        timeseries[j,i] = model.ricker(timeseries[j-1,i], r_values[i])
+        timeseries[j,i] = model.ricker(timeseries[j - 1, i], r_values[i])
 
     fig = plt.figure()
     ax = fig.add_subplot()

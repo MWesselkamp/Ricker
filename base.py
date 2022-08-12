@@ -252,7 +252,6 @@ ax = fig.add_subplot()
 plt.plot(np.transpose(perfect_ensemble_derivative_d), color="lightgrey")
 fig.show()
 
-
 #================================================================#
 # Forecast horizon based on  Spring & Ilyina 2018 / Goddard 2013 #
 #================================================================#

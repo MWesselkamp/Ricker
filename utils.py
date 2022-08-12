@@ -1,4 +1,4 @@
-
+import matplotlib.pyplot as plt
 import numpy as np
 
 def historic_mean(x_test, x_train, length = 'test'):
@@ -26,3 +26,17 @@ def fixed_Tp_Delta(lyapunovs, Tp, delta):
 def fixed_Tp_delta(lyapunovs, Tp, Delta):
     Tp_delta = np.array([Delta/np.exp(lya*Tp) for lya in lyapunovs])
     return Tp_delta
+
+def simulate_T(len):
+
+    fs = 100  # sample rate
+    f = 10  # the frequency of the signal
+    x = np.arange(len)
+    y = np.sin(2 * np.pi * f * (x / fs))
+
+    fig = plt.figure()
+    plt.stem(x, y, 'r')
+    plt.plot(x, y)
+    fig.show()
+
+    return y
