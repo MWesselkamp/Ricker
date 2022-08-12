@@ -12,8 +12,8 @@ uncertainties = {"parameters":False, "initial":True,"observation":False,"stoch":
 hp_rm = {"iterations":50, "initial_size": (0.8, 0.9), "initial_uncertainty": 1e-5, "ensemble_size": 50}
 # Set parameters
 theta_rm = {'alpha':1, 'beta':0.1, 'gamma': 1, 'delta':0.1, 'sigma':None} # random values
-theta_rm_upper = {'ax': 1.5, 'bx': 1.5, 'cx': 1.2, 'ay':1.0, 'by': 1.2, 'cy':1.1} # random values
-T = utils.simulate_T(hp_rm['iterations'])
+theta_rm_upper = {'ax': 0.95, 'bx': 1.5, 'cx': 1.2, 'ay':1.0, 'by': 1.2, 'cy':1.1} # random values
+T = utils.simulate_T(hp_rm['iterations'], add_trend=True)
 
 ricker_multi_t = models.Ricker_Multi_T(uncertainties)
 ricker_multi_t.set_parameters(theta_rm, theta_rm_upper)
