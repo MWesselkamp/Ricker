@@ -9,11 +9,11 @@ uncertainties = {"parameters":False, "initial":True,"observation":False,"stoch":
 #=======================================#
 
 # Set hyperparameters.
-hp_rm = {"iterations":50, "initial_size": (0.8, 0.9), "initial_uncertainty": 1e-5, "ensemble_size": 50}
+hp_rm = {"iterations":50, "initial_size": (0.8, 0.8), "initial_uncertainty": 1e-4, "ensemble_size": 50}
 # Set parameters
-theta_rm = {'alpha':1, 'beta':0.1, 'gamma': 1, 'delta':0.1, 'sigma':None} # random values
-theta_rm_upper = {'ax': 0.95, 'bx': 1.5, 'cx': 1.2, 'ay':1.0, 'by': 1.2, 'cy':1.1} # random values
-T = utils.simulate_T(hp_rm['iterations'], add_trend=True)
+theta_rm = {'alpha':1, 'beta':0.5, 'gamma': 1, 'delta':0.1, 'sigma':None} # random values
+theta_rm_upper = {'ax': np.exp(2.5), 'bx': 5.5, 'cx': 4.2, 'ay':np.exp(2.5), 'by': 5.2, 'cy':4.1} # random values
+T = utils.simulate_T(hp_rm['iterations'], add_trend=False)
 
 ricker_multi_t = models.Ricker_Multi_T(uncertainties)
 ricker_multi_t.set_parameters(theta_rm, theta_rm_upper)
@@ -64,3 +64,18 @@ simu = ricker.simulate(hp_r)
 x = simu["ts"]
 ricker.visualise(np.transpose(x))
 
+#========================================#
+# Single-species model with Temperature. #
+#========================================#
+
+# Set parameters
+theta_r2 = {'lambda':np.exp(2.9), 'alpha':1, 'sigma':None} # lambda = exp(r)
+theta_r2_upper = {'ax': np.exp(2.5), 'bx': 5.5, 'cx': 4.2}
+T = utils.simulate_T(hp_r['iterations'], add_trend=False)
+
+# Initialize model 2 (Otto 2015)
+ricker = models.Ricker_2_T(uncertainties)
+ricker.set_parameters(theta_r2, theta_r2_upper)
+simu = ricker.simulate(hp_r, derive=False, ex=T)
+x = simu["ts"]
+ricker.visualise(np.transpose(x))

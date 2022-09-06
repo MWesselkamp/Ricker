@@ -209,6 +209,33 @@ class Ricker_2(Model):
         """
         pass
 
+class Ricker_2_T(Model):
+
+    def __init__(self, uncertainties):
+        """
+        Initializes model as the Ricker model (Petchey 2015).
+        """
+
+        super(Ricker_2_T, self).__init__(uncertainties)
+
+    def model(self, N, T, stoch = False):
+
+        lambda_a = self.theta_upper['ax'] + self.theta_upper['bx'] * T + self.theta_upper['cx'] * T**2
+
+        if not stoch:
+            return lambda_a * N * np.exp(- self.theta['alpha'] * N)
+        else:
+            # The error should not be normal but lognormal if we assume them to be multiplicative.
+            return lambda_a * N * np.exp(- self.theta['alpha'] * N) +self.theta['sigma'] * self.num.normal(0, 1)
+
+    def model_derivative(self, N):
+        """
+        Derivative of the Ricker at time step t.
+        :param N: Population size at time step t.
+        """
+        pass
+
+
 
 class Ricker_Multi(Model):
 
