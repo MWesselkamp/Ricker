@@ -251,6 +251,9 @@ class Ricker_Multi(Model):
 
             N_x_new =  self.theta['lambda_a']*N_x * np.exp(- self.theta['alpha']*N_x - self.theta['beta']*N_y)
             N_y_new = self.theta['lambda_b']*N_y * np.exp(- self.theta['gamma']*N_y - self.theta['delta']*N_x)
+        else:
+            N_x_new = self.theta['lambda_a'] * N_x * np.exp(- self.theta['alpha'] * N_x - self.theta['beta'] * N_y) +self.theta['sigma'] * self.num.normal(0, 1)
+            N_y_new = self.theta['lambda_b'] * N_y * np.exp(- self.theta['gamma'] * N_y - self.theta['delta'] * N_x)+self.theta['sigma'] * self.num.normal(0, 1)
 
         return (N_x_new, N_y_new)
 
