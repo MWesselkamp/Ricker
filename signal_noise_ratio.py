@@ -9,7 +9,7 @@ hp_r = {"iterations":30, "initial_size": 0.8, "initial_uncertainty": 1e-1, "ense
 theta_r2 = {'lambda':np.exp(1.8), 'alpha':1, 'sigma':0.1} # lambda = exp(r)
 
 # Initialize model 2
-ricker = models.Ricker_2(uncertainties)
+ricker = models.Ricker_Single(uncertainties)
 ricker.set_parameters(theta_r2)
 simu = ricker.simulate(hp_r)
 x = simu["ts"]
@@ -131,7 +131,7 @@ def cnr(x_c, x_b):
 # Set hyperparameters.
 hp_rm = {"iterations":30, "initial_size": (0.8, 0.9), "initial_uncertainty": 1e-1, "ensemble_size": 1}
 # Set parameters
-theta_rm = {'lambda_a': np.exp(1.8), 'lambda_b': np.exp(1.8), 'alpha':1, 'beta':0.1, 'gamma': 1, 'delta':0.1, 'sigma':0.1} # true parameter values (Petchey 2015)
+theta_rm = {'lambda_a': np.exp(1.8), 'lambda_b': np.exp(1.8), 'alpha':1, 'beta':10, 'gamma': 1, 'delta':10, 'sigma':0.1} # true parameter values (Petchey 2015)
 
 ricker_multi = models.Ricker_Multi(uncertainties)
 ricker_multi.set_parameters(theta_rm)

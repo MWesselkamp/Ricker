@@ -4,14 +4,17 @@ import matplotlib.pyplot as plt
 
 class Model(ABC):
 
-    def __init__(self, uncertainties):
+    def __init__(self, uncertainties, set_seed = True):
         """
         Requires model object of type Ricker with corresponding class functions and attributes.
         :param mod: class. Model object.
         :param iterations: int. Time steps.
         :param obs_error: assume an observation error.
         """
-        self.num = np.random.RandomState(100)
+        if set_seed:
+            self.num = np.random.RandomState(100)
+        else:
+            self.num = np.random.RandomState()
 
         self.parameters = uncertainties["parameters"] # parameter error still missing!
         self.initial = uncertainties["initial"] # check
@@ -78,8 +81,8 @@ class Model(ABC):
             else:
                 timeseries[i] = self.model(timeseries[i - 1], ex, stoch)
             if obs_error:
-                timeseries[i] = self.num.poisson(timeseries[i])  # Adjust distribution! No poisson without phi
-
+                #timeseries[i] = self.num.poisson(timeseries[i])  # Adjust distribution! No poisson without phi
+                timeseries[i] = self.num.normal(timeseries[i], 1)
         return timeseries
 
     def model_derive(self, iterations, init, timeseries):
@@ -155,14 +158,14 @@ class Model(ABC):
 
 
 
-class Ricker_1(Model):
+class Ricker0(Model):
 
-    def __init__(self, uncertainties):
+    def __init__(self, uncertainties, set_seed):
         """
         Initializes model as the Ricker model (Petchey 2015).
         """
 
-        super(Ricker_1, self).__init__(uncertainties)
+        super(Ricker_1, self).__init__(uncertainties, set_seed)
 
     def model(self, N, ex = None, stoch=False):
         """
@@ -182,14 +185,14 @@ class Ricker_1(Model):
         return np.exp(self.theta['r'] - self.theta['r'] * N) * (1 - self.theta['r'] * N)
 
 
-class Ricker_2(Model):
+class Ricker_Single(Model):
 
-    def __init__(self, uncertainties):
+    def __init__(self, uncertainties, set_seed):
         """
         Initializes model as the Ricker model (Petchey 2015).
         """
 
-        super(Ricker_2, self).__init__(uncertainties)
+        super(Ricker_Single, self).__init__(uncertainties, set_seed)
 
     def model(self, N, ex = None, stoch=False):
         """
@@ -209,14 +212,14 @@ class Ricker_2(Model):
         """
         pass
 
-class Ricker_2_T(Model):
+class Ricker_Single_T(Model):
 
-    def __init__(self, uncertainties):
+    def __init__(self, uncertainties, set_seed):
         """
         Initializes model as the Ricker model (Petchey 2015).
         """
 
-        super(Ricker_2_T, self).__init__(uncertainties)
+        super(Ricker_Single_T, self).__init__(uncertainties, set_seed)
 
     def model(self, N, T, stoch = False):
 
@@ -239,9 +242,9 @@ class Ricker_2_T(Model):
 
 class Ricker_Multi(Model):
 
-    def __init__(self, uncertainties):
+    def __init__(self, uncertainties, set_seed):
 
-        super(Ricker_Multi, self).__init__(uncertainties)
+        super(Ricker_Multi, self).__init__(uncertainties, set_seed)
 
     def model(self, N, ex = None, stoch = False):
 
@@ -249,8 +252,8 @@ class Ricker_Multi(Model):
 
         if not stoch:
 
-            N_x_new =  self.theta['lambda_a']*N_x * np.exp(- self.theta['alpha']*N_x - self.theta['beta']*N_y)
-            N_y_new = self.theta['lambda_b']*N_y * np.exp(- self.theta['gamma']*N_y - self.theta['delta']*N_x)
+            N_x_new =  self.theta['lambda_a']*N_x * np.exp(- self.theta['alpha']*N_x - 1/self.theta['beta']*N_y)
+            N_y_new = self.theta['lambda_b']*N_y * np.exp(- self.theta['gamma']*N_y - 1/self.theta['delta']*N_x)
         else:
             N_x_new = self.theta['lambda_a'] * N_x * np.exp(- self.theta['alpha'] * N_x - self.theta['beta'] * N_y) +self.theta['sigma'] * self.num.normal(0, 1)
             N_y_new = self.theta['lambda_b'] * N_y * np.exp(- self.theta['gamma'] * N_y - self.theta['delta'] * N_x)+self.theta['sigma'] * self.num.normal(0, 1)
@@ -268,9 +271,9 @@ class Ricker_Multi_T(Model):
     # Implement a temperature (and habitat size) dependent version of the Ricker Multimodel.
     # Mantzouni et al. 2010
 
-    def __init__(self, uncertainties):
+    def __init__(self, uncertainties, set_seed):
 
-        super(Ricker_Multi_T, self).__init__(uncertainties)
+        super(Ricker_Multi_T, self).__init__(uncertainties, set_seed)
 
     def model(self, N, T, stoch = False):
 
@@ -280,8 +283,14 @@ class Ricker_Multi_T(Model):
 
         if not stoch:
 
-            N_x_new =  lambda_a*N_x * np.exp(- self.theta['alpha']*N_x - self.theta['beta']*N_y)
-            N_y_new = lambda_b*N_y * np.exp(- self.theta['gamma']*N_y - self.theta['delta']*N_x)
+            N_x_new =  lambda_a*N_x * np.exp(- self.theta['alpha']*N_x - 1/self.theta['beta']*N_y)
+            N_y_new = lambda_b*N_y * np.exp(- self.theta['gamma']*N_y - 1/self.theta['delta']*N_x)
+
+        else:
+            print(self.theta['sigma'] * self.num.normal(0, 1))
+            N_x_new = lambda_a * N_x * np.exp(- self.theta['alpha'] * N_x - self.theta['beta'] * N_y) + self.theta['sigma'] * self.num.normal(0, 1)
+            N_y_new = lambda_b * N_y * np.exp(- self.theta['gamma'] * N_y - self.theta['delta'] * N_x) + self.theta['sigma'] * self.num.normal(0, 1)
+
 
         return (N_x_new, N_y_new)
 
@@ -292,11 +301,11 @@ class Ricker_Multi_T(Model):
 
 class Hassell(Model):
 
-    def __init__(self, uncertainties):
+    def __init__(self, uncertainties, set_seed):
         """
         Initializes model as Hassel (Sarah Otto, mathematical modeling)
         """
-        super(Hassell, self).__init__(uncertainties)
+        super(Hassell, self).__init__(uncertainties, set_seed)
 
 
     def model(self, N, stoch = False):

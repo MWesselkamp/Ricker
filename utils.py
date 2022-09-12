@@ -27,14 +27,18 @@ def fixed_Tp_delta(lyapunovs, Tp, Delta):
     Tp_delta = np.array([Delta/np.exp(lya*Tp) for lya in lyapunovs])
     return Tp_delta
 
-def simulate_T(len, add_trend = False, sample_rate = 100, freq = 10):
+def simulate_T(len, add_trend = False, add_noise = False):
 
     x = np.arange(len)
-    y = np.sin(2 * np.pi * freq * (x / sample_rate))
+    freq = len/52
+    y = np.sin(2 * np.pi * freq * (x / len))
 
     if add_trend:
-        t = np.linspace(0,1.5,len)
+        t = np.linspace(0,1.0,len)
         y = y+t
+
+    if add_noise:
+        y = np.random.normal(y, 0.1)
 
     fig = plt.figure()
     plt.stem(x, y, 'r')
