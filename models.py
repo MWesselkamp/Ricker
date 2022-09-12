@@ -99,7 +99,6 @@ class Model(ABC):
         :return: tuple. simulated timeseries and its derivative.
         """
         initial_size = hp["initial_size"]
-        print(initial_size)
         initial_uncertainty= hp["initial_uncertainty"]
         iterations = hp["iterations"]
         ensemble_size = hp["ensemble_size"]
@@ -128,8 +127,8 @@ class Model(ABC):
                 if derive:
                     timeseries_derivative = self.model_derive(iterations, initial_condition, timeseries)
                     timeseries_derivative_array[n] = timeseries_derivative
-
-            return {"ts":np.array(timeseries_array), "ts_d":np.array(timeseries_derivative_array)}
+            self.res = {"ts":np.array(timeseries_array), "ts_d":np.array(timeseries_derivative_array)}
+            return self.res
 
         else:
             if self.initial: # only if inital conditions uncertainty considered
@@ -143,7 +142,8 @@ class Model(ABC):
             else:
                 timeseries_derivative = None
 
-            return {"ts":timeseries, "ts_d":timeseries_derivative}
+            self.res = {"ts":timeseries, "ts_d":timeseries_derivative}
+            return self.res
 
     def visualise(self, x1, x2 = None):
 
