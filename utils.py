@@ -41,8 +41,11 @@ def simulate_T(len, add_trend = False, add_noise = False):
         y = np.random.normal(y, 0.1)
 
     fig = plt.figure()
+    ax = fig.add_subplot()
     plt.stem(x, y, 'r')
     plt.plot(x, y)
+    ax.set_xlabel('Time step t', size=14)
+    ax.set_ylabel('Simulated temperature', size=14)
     fig.show()
 
     return y

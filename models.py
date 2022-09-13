@@ -165,7 +165,7 @@ class Ricker0(Model):
         Initializes model as the Ricker model (Petchey 2015).
         """
 
-        super(Ricker_1, self).__init__(uncertainties, set_seed)
+        super(Ricker0, self).__init__(uncertainties, set_seed)
 
     def model(self, N, ex = None, stoch=False):
         """
