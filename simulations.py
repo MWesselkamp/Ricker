@@ -67,17 +67,20 @@ class Simulator:
     def simulate(self, structured_samples = None):
 
         if not structured_samples is None:
-            k = np.random.choice(np.arange(18, 30), structured_samples)
-            if self.regime == "non-chaotic":
-                r = np.random.normal(self.lam, 0.1, structured_samples)
+            k = np.random.choice(np.arange(18, 50), structured_samples)
+            r = np.random.normal(self.lam, 0.5, structured_samples)
 
             x = []
             for i in range(structured_samples):
+
+                # Replace default carrying capacity and parameters by structured samples.
+                self.hp['initial_size'] = k[i]
                 self.theta['alpha'] = 1/k[i] # does not consider the second species. We're only looking at one anyways.
                 if self.type == "single-species":
                     self.theta['lambda'] = np.exp(r[i])
                 else:
                     self.theta_upper['ax'] = np.exp(r[i])
+
                 self.ricker.set_parameters(self.theta, self.theta_upper)
                 simu = self.ricker.simulate(self.hp, derive=False, ex=self.T)['ts']
                 x.append(simu)
