@@ -12,7 +12,6 @@ import matplotlib.pyplot as plt
 
 
 def get_gpp():
-    # %% The Data
     # zf = zipfile.ZipFile('/Users/Marieke_Wesselkamp/ProfoundData.zip')
     # db = zf.read('ProfoundData.sqlite')
 

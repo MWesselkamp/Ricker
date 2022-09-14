@@ -27,3 +27,5 @@ def add_history(X, Y, batchsize, history):
         x = outx
 
     return x, y
+
+

@@ -7,11 +7,10 @@ Created on Fri Sep  9 09:06:42 2022
 """
 
 import random 
-import training
+import neural_networks.training as training
 import numpy as np
 import pandas as pd
 
-#%%
 
 def architecture_searchspace(input_size, output_size, gridsize,
                 max_layers = 3):
@@ -27,12 +26,10 @@ def architecture_searchspace(input_size, output_size, gridsize,
             grid.append(layersizes)
     return grid
 
-#%%
-def architecture_search():
+def architecture_search(X, Y, grid):
 
-    grid = architecture_searchspace(7,1,40)
-
-    hparams = {"epochs":300,
+    # we use fix and random values for hyperparameters. This is suboptimal!
+    hparams = {"epochs":100,
            "batchsize":16,
            "learningrate":0.01,
            "history":1}
@@ -42,7 +39,7 @@ def architecture_search():
 
     for i in range(len(grid)):
         model_design = {"layer_sizes":grid[i]}
-        running_losses = training.train(hparams, model_design, X_P1.to_numpy(), Y_P1.to_numpy(), "randomsearch")  
+        running_losses = training.train(hparams, model_design, X.to_numpy(), Y.to_numpy(), "randomsearch")
         mae_train.append(np.mean(np.transpose(running_losses["mae_train"])[-1]))
         mae_val.append(np.mean(np.transpose(running_losses["mae_val"])[-1]))
         print(f"fitted model {i}")
@@ -56,7 +53,7 @@ def architecture_search():
     
     return layersizes
 
-#%%
+
 def hparams_searchspace(gridsize):
     
     grid = []
@@ -67,8 +64,8 @@ def hparams_searchspace(gridsize):
             grid.append([learning_rate, batchsize])
     return grid
 
-#%%
-def hparams_search(layersizes):
+
+def hparams_search(X, Y, layersizes):
 
     grid = hparams_searchspace(20)
 
@@ -78,12 +75,12 @@ def hparams_search(layersizes):
 
     for i in range(len(grid)):
         
-        hparams = {"epochs":300,
+        hparams = {"epochs":100,
                    "batchsize":grid[i][1],
                    "learningrate":grid[i][0],
                    "history":1}
 
-        running_losses = training.train(hparams, model_design, X_P1.to_numpy(), Y_P1.to_numpy(), "randomsearch")  
+        running_losses = training.train(hparams, model_design, X.to_numpy(), Y.to_numpy(), "randomsearch")
         mae_train.append(np.mean(np.transpose(running_losses["mae_train"])[-1]))
         mae_val.append(np.mean(np.transpose(running_losses["mae_val"])[-1]))
         print(f"fitted model {i}")
@@ -95,4 +92,4 @@ def hparams_search(layersizes):
     print(df.loc[[df["mae_val"].idxmin()]])
     hparams = grid[df["mae_val"].idxmin()]
     
-    return 
+    return hparams
