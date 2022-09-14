@@ -13,27 +13,30 @@ import torch.optim as optim
 from sklearn import metrics
 from sklearn.model_selection import KFold
 
-import models 
-import utils 
+import neural_networks.models_nn as models
+import neural_networks.utils as utils
 
 import os.path
 
 #%%
 
-def train(hparams, model_design, X, Y, data,
-                   data_dir="models/mlp", splits=5):
+def train(hparams, model_design, X, Y, task,
+                   data_dir='Users/Marieke_Wesselkamp/PycharmProjects/Ricker/models', splits=5):
     
     """
-    
-    
+    Training loop. Unfinished for the AE!
+
+    Missing:
+    - Flexible architecture Search for encoder-decoder architecture and bottleneck size.
+    (- Early stopping)
+    - Dropout for Denoising AE.
     """
+
     epochs = hparams["epochs"]
-    
+    # Set up a blocked 5-fold cross-validation
     kf = KFold(n_splits=splits, shuffle = False)
     kf.get_n_splits(X)
-    
-    #rmse_train = np.zeros((splits, epochs))
-    #rmse_val = np.zeros((splits, epochs))
+
     mae_train = np.zeros((splits, epochs))
     mae_val = np.zeros((splits, epochs))
         
@@ -45,34 +48,32 @@ def train(hparams, model_design, X, Y, data,
     
     for train_index, test_index in kf.split(X):
         
-        X_train, X_test = X[train_index], X[test_index]
-        y_train, y_test = Y[train_index], Y[test_index]
-        
-        X_test = torch.tensor(X_test).type(dtype=torch.float)
-        y_test = torch.tensor(y_test).type(dtype=torch.float)
-        X_train = torch.tensor(X_train).type(dtype=torch.float)
-        y_train = torch.tensor(y_train).type(dtype=torch.float)
-        
-        model = models.MLP(model_design["layer_sizes"])
+        x_train, x_test = torch.Tensor(X[train_index]), torch.Tensor(X[test_index])
+        y_train, y_test = torch.Tensor(Y[train_index]), torch.Tensor(Y[test_index])
+
+        if task == "MLP":
+            model = models.MLP(model_design["layer_sizes"])
+        else:
+            model = models.AE(model_design["input_dimension"], model_design["output_dimension"])
                     
         optimizer = optim.Adam(model.parameters(), lr = hparams["learningrate"])
-        criterion = nn.MSELoss()
-        
-        #early_stopping = utils.EarlyStopping()
-        
+        criterion = nn.MSELoss() # AE: mean squared error as reconstruction loss?
+
         for epoch in range(epochs):
             
             # Training
             model.train()
 
-            x, y = utils.create_batches(X_train, y_train, hparams["batchsize"], hparams["history"])
+            x, y = utils.create_batches(x_train, y_train, hparams["batchsize"])
             
-            x = torch.tensor(x).type(dtype=torch.float)
-            y = torch.tensor(y).type(dtype=torch.float)
+            #x = torch.Tensor(x)#.type(dtype=torch.float)
+            #y = torch.Tensor(y)#.type(dtype=torch.float)
             
-            
-            output = model(x)
-            
+            if task == "AE":
+                output, latent = model(x)
+            else:
+                output = model(x)
+
             # Compute training loss
             loss = criterion(output, y)
             
@@ -84,14 +85,9 @@ def train(hparams, model_design, X, Y, data,
             model.eval()
             
             with torch.no_grad():
-                pred_train = model(X_train)
-                pred_test = model(X_test)
-                #rmse_train[i, epoch] = utils.rmse(y_train, pred_train)
-                #rmse_val[i, epoch] = utils.rmse(y_test, pred_test)
-                val_loss = metrics.mean_absolute_error(y_test, pred_test)  
-                #early_stopping(val_loss)
-                #if early_stopping.early_stop:
-                #    break
+                pred_train = model(x_train)
+                pred_test = model(x_test)
+                val_loss = metrics.mean_absolute_error(y_test, pred_test)
                 
                 mae_train[i, epoch] = metrics.mean_absolute_error(y_train, pred_train)
                 mae_val[i, epoch] = val_loss
@@ -107,8 +103,8 @@ def train(hparams, model_design, X, Y, data,
         #                        metrics.mean_absolute_error(y_train, preds_train.numpy()),
         #                        metrics.mean_absolute_error(y_test, preds_test.numpy())])
 
-    
-        torch.save(model.state_dict(), os.path.join(data_dir, f"{data}_model{i}.pth"))
+        if not data_dir is None:
+            torch.save(model.state_dict(), os.path.join(data_dir, f"{task}_model{i}.pth"))
         
         #y_tests.append(y_test.numpy())
         #y_preds.append(preds_test.numpy())

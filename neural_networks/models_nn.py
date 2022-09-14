@@ -64,22 +64,14 @@ class AE(torch.nn.Module):
         self.encoder = torch.nn.Sequential(
             torch.nn.Linear(input_dim, 36),
             torch.nn.ReLU(),
-            torch.nn.Linear(36, 18),
-            torch.nn.ReLU(),
-            torch.nn.Linear(18, 9)
+            torch.nn.Linear(36, 9) # under-complete hidden layer? smaller dimension than input data.
+            # Activation function?
         )
 
-        # Building an linear decoder with Linear
-        # layer followed by Relu activation function
-        # The Sigmoid activation function
-        # outputs the value between 0 and 1
-        # 9 ==> 784
         self.decoder = torch.nn.Sequential(
-            torch.nn.Linear(9, 18),
+            torch.nn.Linear(9, 36),
             torch.nn.ReLU(),
-            torch.nn.Linear(18, 36),
-            torch.nn.ReLU(),
-            torch.nn.Linear(36, output_dim),
+            torch.nn.Linear(36, output_dim)
         )
 
     def forward(self, x):

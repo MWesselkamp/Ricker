@@ -26,7 +26,7 @@ def architecture_searchspace(input_size, output_size, gridsize,
             grid.append(layersizes)
     return grid
 
-def architecture_search(X, Y, grid):
+def architecture_search(x, y, grid, task):
 
     # we use fix and random values for hyperparameters. This is suboptimal!
     hparams = {"epochs":100,
@@ -38,8 +38,9 @@ def architecture_search(X, Y, grid):
     mae_val = []
 
     for i in range(len(grid)):
-        model_design = {"layer_sizes":grid[i]}
-        running_losses = training.train(hparams, model_design, X.to_numpy(), Y.to_numpy(), "randomsearch")
+        model_design = {"layer_sizes":grid[i], "input_dimension":x.shape[1], "output_dimension":y.shape[1]}
+        running_losses = training.train(hparams, model_design,
+                                        x.detach().numpy(), y.detach().numpy(), task)
         mae_train.append(np.mean(np.transpose(running_losses["mae_train"])[-1]))
         mae_val.append(np.mean(np.transpose(running_losses["mae_val"])[-1]))
         print(f"fitted model {i}")
@@ -51,7 +52,7 @@ def architecture_search(X, Y, grid):
     print(df.loc[[df["mae_val"].idxmin()]])
     layersizes = grid[df["mae_val"].idxmin()]
     
-    return layersizes
+    return df
 
 
 def hparams_searchspace(gridsize):
@@ -65,11 +66,9 @@ def hparams_searchspace(gridsize):
     return grid
 
 
-def hparams_search(X, Y, layersizes):
+def hparams_search(x, y, grid, layersizes, task):
 
-    grid = hparams_searchspace(20)
-
-    model_design = {"layer_sizes":layersizes}
+    model_design = {"layer_sizes":layersizes, "input_dimension":x.shape[1], "output_dimension":y.shape[1]}
     mae_train = []
     mae_val = []
 
@@ -80,7 +79,7 @@ def hparams_search(X, Y, layersizes):
                    "learningrate":grid[i][0],
                    "history":1}
 
-        running_losses = training.train(hparams, model_design, X.to_numpy(), Y.to_numpy(), "randomsearch")
+        running_losses = training.train(hparams, model_design, x.to_numpy(), y.to_numpy(), task)
         mae_train.append(np.mean(np.transpose(running_losses["mae_train"])[-1]))
         mae_val.append(np.mean(np.transpose(running_losses["mae_val"])[-1]))
         print(f"fitted model {i}")
