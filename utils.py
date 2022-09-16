@@ -34,7 +34,7 @@ def simulate_T(len, add_trend = False, add_noise = False):
     y = np.sin(2 * np.pi * freq * (x / len))
 
     if add_trend:
-        t = np.linspace(0,1.0,len)
+        t = np.linspace(0,0.5,len)
         y = y+t
 
     if add_noise:
@@ -49,3 +49,5 @@ def simulate_T(len, add_trend = False, add_noise = False):
     fig.show()
 
     return y
+
+

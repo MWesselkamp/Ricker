@@ -28,41 +28,43 @@ class Simulator:
         if behaviour == "deterministic":
             self.uncertainties['observations'] == False
 
-    def choose_model(self, type, environment):
+    def environment(self, environment, trend = False):
 
-        self.type = type
+        self.environment = environment
 
-        if environment == "exogeneous":
-            self.T = utils.simulate_T(self.hp['iterations'], add_trend=False, add_noise=True)
-        elif environment == "exogeneous-trend":
-            self.T = utils.simulate_T(self.hp['iterations'], add_trend=True, add_noise=True)
-        else:
+        if self.environment == "exogeneous":
+            self.T = utils.simulate_T(self.hp['iterations'], add_trend=trend, add_noise=True)
+        elif self.environment == "non-exogeneous":
             self.T = None
 
+    def model_type(self, type):
+
+        self.type = type
         self.theta_upper = None
 
-        if (self.type == "single-species") & (environment  == "non-exogeneous"):
+        if (self.type == "single-species") & (self.environment  == "non-exogeneous"):
             self.theta = {'lambda': self.lam, 'alpha': 1 / 20, 'sigma': None}
             self.ricker = models.Ricker_Single(self.uncertainties, self.set_seed)
 
-        if (self.type == "multi-species") & (environment  == "non-exogeneous"):
+        if (self.type == "multi-species") & (self.environment  == "non-exogeneous"):
             self.theta = {'lambda_a': self.lam, 'alpha':1/20, 'beta':30,
                           'lambda_b': self.lam, 'gamma': 1/20, 'delta':30,
                           'sigma':None}
             self.ricker = models.Ricker_Multi(self.uncertainties, self.set_seed)
 
-        if (self.type == "single-species") & (environment == "exogeneous"):
+        if (self.type == "single-species") & (self.environment == "exogeneous"):
             self.theta = { 'alpha': 1 / 20, 'sigma': None}
             self.theta_upper = {'ax': self.lam, 'bx': 2.5, 'cx': 2.2}
             self.ricker = models.Ricker_Single_T(self.uncertainties, self.set_seed)
 
-        if (self.type == "multi-species") & (environment == "exogeneous"):
+        if (self.type == "multi-species") & (self.environment == "exogeneous"):
             self.theta = {'alpha':1/20, 'beta':35,
                           'gamma': 1/20, 'delta':45,
                           'sigma': None}
             self.theta_upper = {'ax': self.lam, 'bx': 1.8, 'cx': 2.2,
                                 'ay': self.lam, 'by': 1.0, 'cy':2.1}
             self.ricker = models.Ricker_Multi_T(self.uncertainties, self.set_seed)
+
 
     def simulate(self, structured_samples = None):
 
