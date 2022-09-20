@@ -187,7 +187,7 @@ class Ricker0(Model):
 
 class Ricker_Single(Model):
 
-    def __init__(self, uncertainties, set_seed):
+    def __init__(self, uncertainties, set_seed = True):
         """
         Initializes model as the Ricker model (Petchey 2015).
         """
@@ -214,7 +214,7 @@ class Ricker_Single(Model):
 
 class Ricker_Single_T(Model):
 
-    def __init__(self, uncertainties, set_seed):
+    def __init__(self, uncertainties, set_seed = True):
         """
         Initializes model as the Ricker model (Petchey 2015).
         """
@@ -223,6 +223,8 @@ class Ricker_Single_T(Model):
 
     def model(self, N, T, stoch = False):
 
+        if stoch:
+            T = self.num.normal(T, self.theta['sigma'])
         lambda_a = self.theta_upper['ax'] + self.theta_upper['bx'] * T + self.theta_upper['cx'] * T**2
 
         if not stoch:
@@ -242,7 +244,7 @@ class Ricker_Single_T(Model):
 
 class Ricker_Multi(Model):
 
-    def __init__(self, uncertainties, set_seed):
+    def __init__(self, uncertainties, set_seed = True):
 
         super(Ricker_Multi, self).__init__(uncertainties, set_seed)
 
@@ -271,7 +273,7 @@ class Ricker_Multi_T(Model):
     # Implement a temperature (and habitat size) dependent version of the Ricker Multimodel.
     # Mantzouni et al. 2010
 
-    def __init__(self, uncertainties, set_seed):
+    def __init__(self, uncertainties, set_seed = True):
 
         super(Ricker_Multi_T, self).__init__(uncertainties, set_seed)
 

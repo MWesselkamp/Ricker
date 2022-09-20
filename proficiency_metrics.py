@@ -61,3 +61,50 @@ def t_statistic(x_sample, H0):
     t = np.divide((x_sample.mean(axis=0)-H0),denom)
     pval = special.stdtr(df, -np.abs(t))*2
     return t, pval
+
+def squared_error_SNR(obs, pred):
+    """
+    The squared error based SNR, an estimator of the true expected SNR. (Czanner et al. 2015, PNAS)
+    The signal is the reduction in expected prediction error by using the model that generated pred.
+    Independent of sample size!
+    """
+
+    EPE_mean = np.dot(np.transpose(obs - np.mean(obs)), (obs - np.mean(obs))) # returns a scalar
+    EPE_model = np.dot(np.transpose(obs - pred), (obs - pred)) # also returns a scalar
+    signal = (EPE_mean - EPE_model)
+    noise = EPE_model
+
+    return signal/noise
+
+
+def var_based_SNR(obs, pred, inital_uncertainty):
+    """
+    The squared error based SNR, an estimator of the true expected SNR at perfect knowledge of parameters.
+    The signal is the reduction in expected prediction error by using the model that generated pred.
+    Dependent on sample size (decreases with sample size)
+
+    # This may be more suited for the perfect model scenario
+    # but I am not going to use it until I am sure of what the individual parts are
+    """
+    signal = np.dot(np.transpose(pred - np.mean(obs)), (pred - np.mean(obs)))
+    noise = len(obs) * inital_uncertainty ** 2
+
+    return signal / noise
+
+def raw_SNR(pred):
+    # tSNR raw SNR or timeseries SNR: mean(timeseries) / var(timeseries)
+    # tsnr increases with sample size (see sd).
+    mu = np.mean(pred, axis=1)
+    var = np.mean(pred**2, axis=1) - np.mean(pred, axis=1)**2 # np.std(pred, axis=1)#1/pred.shape[0]*np.sum(np.subtract(pred, mu)**2, axis=0)
+    return mu**2/var**2
+
+def CNR(x_c, x_b):
+    """
+    CNR - contrast to noise ratio: mean(condition-baseline) / std(baseline)
+    This is basically the same as the square-error-based SNR?
+    Transfered, we have the model as the baseline and the mean as condition.
+    tsnr increases with sample size (see sd).
+    """
+    mu = np.mean(x_c) - np.mean(x_b)
+    sd = 1/x.shape[0]*np.sum(np.subtract(x_b, mu)**2, axis=0)
+    return mu/sd

@@ -40,6 +40,8 @@ def simulate_T(len, add_trend = False, add_noise = False):
     if add_noise:
         y = np.random.normal(y, 0.1)
 
+    y = np.round(y, 4)
+
     fig = plt.figure()
     ax = fig.add_subplot()
     plt.stem(x, y, 'r')

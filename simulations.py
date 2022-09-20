@@ -23,7 +23,7 @@ class Simulator:
         if self.regime == "chaotic":
             self.lam = np.exp(2.2)
         elif self.regime == "non-chaotic":
-            self.lam = np.exp(1.8)
+            self.lam = np.exp(1.5)
 
         if behaviour == "deterministic":
             self.uncertainties['observations'] == False
@@ -41,26 +41,30 @@ class Simulator:
 
         self.type = type
         self.theta_upper = None
+        if self.uncertainties['stoch'] == True:
+            sigma = 0.3
+        else:
+            sigma = None
 
         if (self.type == "single-species") & (self.environment  == "non-exogeneous"):
-            self.theta = {'lambda': self.lam, 'alpha': 1 / 20, 'sigma': None}
+            self.theta = {'lambda': self.lam, 'alpha': 1 / 20, 'sigma': sigma}
             self.ricker = models.Ricker_Single(self.uncertainties, self.set_seed)
 
         if (self.type == "multi-species") & (self.environment  == "non-exogeneous"):
             self.theta = {'lambda_a': self.lam, 'alpha':1/20, 'beta':30,
                           'lambda_b': self.lam, 'gamma': 1/20, 'delta':30,
-                          'sigma':None}
+                          'sigma':sigma}
             self.ricker = models.Ricker_Multi(self.uncertainties, self.set_seed)
 
         if (self.type == "single-species") & (self.environment == "exogeneous"):
-            self.theta = { 'alpha': 1 / 20, 'sigma': None}
+            self.theta = { 'alpha': 1 / 20, 'sigma': sigma}
             self.theta_upper = {'ax': self.lam, 'bx': 2.5, 'cx': 2.2}
             self.ricker = models.Ricker_Single_T(self.uncertainties, self.set_seed)
 
         if (self.type == "multi-species") & (self.environment == "exogeneous"):
             self.theta = {'alpha':1/20, 'beta':35,
                           'gamma': 1/20, 'delta':45,
-                          'sigma': None}
+                          'sigma': sigma}
             self.theta_upper = {'ax': self.lam, 'bx': 1.8, 'cx': 2.2,
                                 'ay': self.lam, 'by': 1.0, 'cy':2.1}
             self.ricker = models.Ricker_Multi_T(self.uncertainties, self.set_seed)
@@ -91,6 +95,11 @@ class Simulator:
             self.ricker.set_parameters(self.theta, self.theta_upper)
             simu = self.ricker.simulate(self.hp, derive=False, ex=self.T)
             x = simu["ts"]
+
+            if self.type == "single-species":
+                self.ricker.visualise(np.transpose(x))
+            else:
+                self.ricker.visualise(np.transpose(x[:,:,0]), np.transpose(x[:,:,1]))
 
         return x
 
