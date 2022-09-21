@@ -158,101 +158,68 @@ class Model(ABC):
 
 
 
+class Ricker0(Model):
 
-class Ricker_Single(Model):
-
-    def __init__(self, uncertainties, set_seed = True):
+    def __init__(self, uncertainties, set_seed):
         """
         Initializes model as the Ricker model (Petchey 2015).
         """
 
-        super(Ricker_Single, self).__init__(uncertainties, set_seed)
+        super(Ricker0, self).__init__(uncertainties, set_seed)
 
     def model(self, N, ex = None, stoch=False):
         """
         With or without stochasticity (Woods 2010).
         :param N: Population size at time step t.
         """
-        return N * np.exp(self.theta['lambda']*(1- self.theta['alpha'] * N))
-
-    def model_derivative(self, N):
-        """
-        Add numerical derivative.
-        """
-        pass
-
-class Ricker_Single_T(Model):
-
-    def __init__(self, uncertainties, set_seed = True):
-        """
-        Initializes model as the Ricker model (Petchey 2015).
-        """
-
-        super(Ricker_Single_T, self).__init__(uncertainties, set_seed)
-
-    def model(self, N, T, stoch = False):
-
-        if stoch:
-            T = self.num.normal(T, self.theta['sigma'])
-        lambda_a = self.theta_upper['ax'] + self.theta_upper['bx'] * T + self.theta_upper['cx'] * T**2
-
-        return N * np.exp(lambda_a*(1 - self.theta['alpha'] * N))
+        if not stoch:
+            return N * np.exp(self.theta['r'] * (1 - N))
+        else:
+            return N * np.exp(self.theta['r'] * (1 - N)) + self.theta['sigma'] * self.num.normal(0, 1)
 
     def model_derivative(self, N):
         """
         Derivative of the Ricker at time step t.
         :param N: Population size at time step t.
         """
+        return np.exp(self.theta['r'] - self.theta['r'] * N) * (1 - self.theta['r'] * N)
+
+
+
+class Hassell(Model):
+
+    def __init__(self, uncertainties, set_seed):
+        """
+        Initializes model as Hassel (Sarah Otto, mathematical modeling)
+        """
+        super(Hassell, self).__init__(uncertainties, set_seed)
+
+
+    def model(self, N, stoch = False):
+
+        if not stoch:
+            return self.theta['lambda'] * N * (1 / ((1 + self.theta['alpha'] * N)**self.theta['theta']))
+        else:
+            return self.theta['lambda'] * N * (1 / ((1 + self.theta['alpha'] * N)**self.theta['theta'])) + self.theta['sigma'] * self.num.normal(0, 1)
+
+    def model_derivative(self, N):
+
+        nom = 1 + self.theta['alpha']*N*(1-self.theta['theta'])
+        denom = (1+self.theta['alpha']*N)**(self.theta['theta']+1)
+        return self.theta['lambda']*(nom/denom)
+
+
+
+class LotkaVolterra(Model):
+
+    def __init__(self):
+
         pass
 
+    def model(self):
 
-
-class Ricker_Multi(Model):
-
-    def __init__(self, uncertainties, set_seed = True):
-
-        super(Ricker_Multi, self).__init__(uncertainties, set_seed)
-
-    def model(self, N, ex = None, stoch = False):
-
-        N_x, N_y = N[0], N[1]
-
-        N_x_new =  N_x * np.exp(self.theta['lambda_a']*(1 - self.theta['alpha']*N_x - self.theta['beta']*N_y))
-        N_y_new = N_y * np.exp(self.theta['lambda_b']*(1 - self.theta['gamma']*N_y - self.theta['delta']*N_x))
-
-        return (N_x_new, N_y_new)
-
+        pass
 
     def model_derivative(self):
 
         pass
-
-
-class Ricker_Multi_T(Model):
-
-    # Implement a temperature (and habitat size) dependent version of the Ricker Multimodel.
-    # Mantzouni et al. 2010
-
-    def __init__(self, uncertainties, set_seed = True):
-
-        super(Ricker_Multi_T, self).__init__(uncertainties, set_seed)
-
-    def model(self, N, T, stoch = False):
-
-        N_x, N_y = N[0], N[1]
-
-        lambda_a = self.theta_upper['ax'] + self.theta_upper['bx'] * T + self.theta_upper['cx'] * T**2
-        lambda_b = self.theta_upper['ay'] + self.theta_upper['by'] * T + self.theta_upper['cy'] * T**2
-
-        N_x_new =  N_x * np.exp(lambda_a*(1- self.theta['alpha']*N_x - self.theta['beta']*N_y))
-        N_y_new = N_y * np.exp(lambda_b*(1 - self.theta['gamma']*N_y - self.theta['delta']*N_x))
-
-        return (N_x_new, N_y_new)
-
-    def model_derivative(self):
-
-        pass
-
-
-
-

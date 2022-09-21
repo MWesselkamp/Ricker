@@ -27,7 +27,7 @@ def fixed_Tp_delta(lyapunovs, Tp, Delta):
     Tp_delta = np.array([Delta/np.exp(lya*Tp) for lya in lyapunovs])
     return Tp_delta
 
-def simulate_T(len, add_trend = False, add_noise = False):
+def simulate_T(len, add_trend = False, add_noise = False, show=True):
 
     x = np.arange(len)
     freq = len/52
@@ -42,13 +42,14 @@ def simulate_T(len, add_trend = False, add_noise = False):
 
     y = np.round(y, 4)
 
-    fig = plt.figure()
-    ax = fig.add_subplot()
-    plt.stem(x, y, 'r')
-    plt.plot(x, y)
-    ax.set_xlabel('Time step t', size=14)
-    ax.set_ylabel('Simulated temperature', size=14)
-    fig.show()
+    if show:
+        fig = plt.figure()
+        ax = fig.add_subplot()
+        plt.stem(x, y, 'r')
+        plt.plot(x, y)
+        ax.set_xlabel('Time step t', size=14)
+        ax.set_ylabel('Simulated temperature', size=14)
+        fig.show()
 
     return y
 
