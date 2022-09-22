@@ -51,22 +51,22 @@ class Simulator:
             self.ricker = models.Ricker_Single(self.uncertainties, self.set_seed)
 
         if (self.type == "multi-species") & (self.environment  == "non-exogeneous"):
-            self.theta = {'lambda_a': self.lam, 'alpha':1/2000, 'beta':1/1900,
-                          'lambda_b': self.lam, 'gamma': 1/2000, 'delta':1/1900,
+            self.theta = {'lambda_a': self.lam, 'alpha':1/2000, 'beta':1/1950,
+                          'lambda_b': self.lam, 'gamma': 1/2000, 'delta':1/1955,
                           'sigma':sigma}
             self.ricker = models.Ricker_Multi(self.uncertainties, self.set_seed)
 
         if (self.type == "single-species") & (self.environment == "exogeneous"):
             self.theta = { 'alpha': 1 / 1000, 'sigma': sigma}
-            self.theta_upper = {'ax': self.lam, 'bx': .05, 'cx': .1}
+            self.theta_upper = {'ax': self.lam, 'bx': .08, 'cx': .05}
             self.ricker = models.Ricker_Single_T(self.uncertainties, self.set_seed)
 
         if (self.type == "multi-species") & (self.environment == "exogeneous"):
-            self.theta = {'alpha':1/2000, 'beta':1/1900,
-                          'gamma': 1/2000, 'delta':1/1900,
+            self.theta = {'alpha':1/2000, 'beta':1/1950,
+                          'gamma': 1/2000, 'delta':1/1955,
                           'sigma': sigma}
-            self.theta_upper = {'ax': self.lam, 'bx': 0.05, 'cx': 0.1,
-                                'ay': self.lam, 'by': 0.05, 'cy':0.1}
+            self.theta_upper = {'ax': self.lam, 'bx': 0.08, 'cx': 0.05,
+                                'ay': self.lam, 'by': 0.08, 'cy':0.05}
             self.ricker = models.Ricker_Multi_T(self.uncertainties, self.set_seed)
 
 
