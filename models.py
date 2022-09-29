@@ -151,7 +151,7 @@ class Model(ABC):
         ax = fig.add_subplot()
         plt.plot(x1, color="blue")
         if not x2 is None:
-            plt.plot(x2, color="green")
+            plt.plot(x2, color="lightgrey")
         ax.set_xlabel('Time step t', size=14)
         ax.set_ylabel('Population size', size=14)
         fig.show()

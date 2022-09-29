@@ -2,12 +2,13 @@ import numpy as np
 from pyinform.dist import Dist
 from pyinform.shannon import entropy, relative_entropy
 import matplotlib.pyplot as plt
-import json
-import time
-import data_handling
 from sklearn.neighbors import KernelDensity
 import simulations
-import utils
+
+# For calculation of permutation entropy
+import scipy.stats as ss
+from collections import Counter
+from math import factorial
 
 # Shannon Entropy
 # Is Zero, when there is no more uncertainty, i.e. the probability associated with an outcome becomes 1.
@@ -57,26 +58,25 @@ ys = np.concatenate(x_clim)
 kde = KernelDensity(kernel='gaussian', bandwidth=.5).fit(ys[:, np.newaxis])  # the higher the bandwidth the smoother
 # what is the range we use? The min and max ever realized in that periods.
 new_ys = np.linspace(x.min(), x.max(), 300)[:, np.newaxis]
-dens = np.round(np.exp(kde.score_samples(new_ys)), 50)
-dens[dens==0] = 1e-50
+dens_clim = np.round(np.exp(kde.score_samples(new_ys)), 50)
+dens_clim[dens_clim==0] = 1e-50
 
 fig = plt.figure()
 ax = fig.add_subplot()
-ax.fill(new_ys, np.exp(dens), alpha=0.3)
+ax.fill(new_ys, dens_clim, alpha=0.3)
 ax.set_xlabel('Population size', size=14)
 ax.set_ylabel('Density', size=14)
 fig.show()
 
-densies = []
+dens_pred = []
 for i in range(x_pred.shape[1]-1): #takes a while, reduce if
     yp = x_pred[:,:i+1].flatten()
     kde = KernelDensity(kernel='gaussian', bandwidth=.5).fit(yp[:, np.newaxis])  # the higher the bandwidth the smoother
     new_yp = np.linspace(x.min(), x.max(), 300)[:, np.newaxis]
     log_dens = np.round(kde.score_samples(new_yp), 50)
     log_dens[log_dens == 0] = 1e-50
-    densies.append(np.exp(log_dens))
-#    ax.plot(new_yp, np.round(np.exp(log_dens),4), alpha=0.3)
-#fig.show()
+    dens_pred.append(np.exp(log_dens))
+
 
 def relative_entropy(p, q, integral = True):
     prob_frac = np.round(p/q, 50)
@@ -84,21 +84,23 @@ def relative_entropy(p, q, integral = True):
     RE = np.sum(p*np.log(prob_frac)) if integral else p*np.log(prob_frac)
     return RE
 
-RE = []
-for i in range(x_pred.shape[1]-1): #x_pred.shape[1]-1
-    RE.append(relative_entropy(densies[i], dens))
+def iterate_RE(dens_clim, dens_pred):
 
-fig = plt.figure()
-ax = fig.add_subplot()
-ax.plot(RE)
-fig.show()
+    RE = []
+    for i in range(x_pred.shape[1]-1): #x_pred.shape[1]-1
+        RE.append(relative_entropy(dens_pred[i], dens_clim))
+    return RE
+
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    ax.plot(RE)
+    fig.show()
 
 ## Running into problems because most densities are 0.
 ## changed zeros to very small non-zero values. This however, will create a biased RE:
 # The probability densities won't actually sum up to 1 anymore.
 
 # Continued: Let's explore the permutation entropy, based on Pennekamp 2019
-
 # PE based on an embedded time series
 
 def embed(x, m, d = 1):
@@ -110,6 +112,7 @@ def embed(x, m, d = 1):
     out = np.array([X[np.arange(n)]]*m)
     a = np.repeat(np.arange(1, m)*d, out.shape[1])
     out[1:,] = out[1:,]+a.reshape(out[1:,].shape)
+    out = x[out]
 
     return out
 
@@ -117,17 +120,30 @@ def entropy(wd):
     """
     in bits
     """
-    return - np.sum(wd*np.log2(wd))
-
-def rank(x, tie_method="average"):
-    """
-    implement function that ranks x
-    """
+    return -np.sum(list(wd.values())*np.log2(list(wd.values())))
 
 
-def word_distr(x_emb, tie_method):
-    """
+def word_distr(x_emb, tie_method='average'):
 
-    """
-    words = np.chararray(-rank(x_emb))
-    words = [np.concatenate(words[i]) for i in words.shape[0]]
+    words = [np.array2string(ss.rankdata(x_emb[:, i])) for i in range(x_emb.shape[1])]
+    c = dict(Counter(words))
+    for k, v in c.items():
+        c[k] = v/len(words)
+    return c
+
+
+x = np.random.normal(0,1,30)
+x_emb = embed(x, m=3)
+wd = word_distr(x_emb)
+denom = np.log2(2*factorial(3))
+ent = entropy(wd)/denom
+
+def permutation_entropy(x, m, d):
+
+    x_emb = embed(x, m=m)
+    wd = word_distr(x_emb)
+    denom = np.log2(2 * factorial(m))
+    ent = entropy(wd) / denom
+
+    return ent
+

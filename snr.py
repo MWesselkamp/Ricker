@@ -41,17 +41,19 @@ def raw_SNR(pred, var = False):
 
     return signal/noise
 
-def raw_CNR(obs, pred):
+def raw_CNR(obs, pred, squared = False):
     """
     CNR - contrast to noise ratio: mean(condition-baseline) / std(baseline)
     This is basically the same as the square-error-based SNR?
     Transfered, we have the model as the baseline and the mean as condition.
     tsnr increases with sample size (see sd).
     """
-    signal = np.mean(pred - np.mean(obs)) # returns a scalar
+    signal = np.mean((pred - np.mean(obs))) # returns a scalar
     noise = np.std(obs)
-
-    return signal/noise
+    if squared:
+        return signal**2/noise**2, signal**2, noise**2
+    else:
+        return signal/noise, signal, noise
 
 
 def bs_sampling(obs, pred, snr, samples=100):
@@ -68,7 +70,7 @@ def bs_sampling(obs, pred, snr, samples=100):
         for i in range(its):
 
             if snr == "cnr":
-                arr[i, j] = raw_CNR(x_obs[:i + 2], x_pred[:i + 2])
+                arr[i, j] = raw_CNR(x_obs[:i + 2], x_pred[:i + 2])[0]
             elif snr == "ss-snr":
                 arr[i, j] = squared_error_SNR(x_obs[:i + 2], x_pred[:i + 2])
 

@@ -44,8 +44,11 @@ def rolling_corrs(ts_reference, ts_ensemble, window = 3):
     return corrs
 
 
-def rmse(y, y_pred):
-    return math.sqrt(np.square(np.subtract(y,y_pred)).mean())
+def rmse(y, y_pred, standardized = False):
+    if standardized:
+        return math.sqrt(np.square(np.subtract(y, y_pred)).mean()) / (np.max(y) - np.min(y))
+    else:
+        return math.sqrt(np.square(np.subtract(y,y_pred)).mean())
 
 def mean_squared_error(ts_reference, ts_ensemble):
     mse = np.mean(np.subtract(ts_reference, ts_ensemble)**2, axis=0)
