@@ -28,7 +28,7 @@ class Simulator:
     def hyper_parameters(self,simulated_years,ensemble_size,initial_size):
 
         self.hp = {"iterations":simulated_years*52, "initial_size": initial_size,
-                   "initial_uncertainty": 1e-1, "ensemble_size": ensemble_size}
+                   "ensemble_size": ensemble_size}
 
     def simulation_setup(self):
 
@@ -42,32 +42,35 @@ class Simulator:
         elif self.regime == "non-chaotic":
             lam = 0.005
 
-        theta_upper = None
+        sigma = 0.5
+        initial_uncertainty = 1e-1
 
         if (self.type == "single-species") & (self.environment  == "non-exogeneous"):
-            theta = {'lambda': lam, 'alpha': 1 / 1000, 'sigma': 1}
             self.ricker = models.Ricker_Single(self.uncertainties, self.set_seed)
+            theta = {'lambda': lam, 'alpha': 1 / 1000, 'sigma': 1}
+
 
         if (self.type == "multi-species") & (self.environment  == "non-exogeneous"):
-            theta = {'lambda_a': lam, 'alpha':1/2000, 'beta':1/1950,
-                    'lambda_b': lam, 'gamma': 1/2000, 'delta':1/1955,
-                    'sigma':1}
             self.ricker = models.Ricker_Multi(self.uncertainties, self.set_seed)
+            theta = {'lambda_a': lam, 'alpha':1/2000, 'beta':1/1950,
+                    'lambda_b': lam, 'gamma': 1/2000, 'delta':1/1955}
+
 
         if (self.type == "single-species") & (self.environment == "exogeneous"):
-            theta = { 'alpha': 1 / 1000, 'sigma': 1}
-            theta_upper = {'ax': lam, 'bx': .08, 'cx': .05}
             self.ricker = models.Ricker_Single_T(self.uncertainties, self.set_seed)
+            theta = { 'alpha': 1 / 1000, 'ax': lam, 'bx': .08, 'cx': .05}
+
 
         if (self.type == "multi-species") & (self.environment == "exogeneous"):
-            theta = {'alpha':1/2000, 'beta':1/1950,
-                          'gamma': 1/2000, 'delta':1/1955,
-                          'sigma': 1}
-            theta_upper = {'ax': lam, 'bx': 0.08, 'cx': 0.05,
-                                'ay': lam, 'by': 0.08, 'cy':0.05}
             self.ricker = models.Ricker_Multi_T(self.uncertainties, self.set_seed)
+            theta = {'alpha':1/2000, 'beta':1/1950,
+                    'gamma': 1/2000, 'delta':1/1955,
+                    'ax': lam, 'bx': 0.08, 'cx': 0.05,
+                    'ay': lam, 'by': 0.08, 'cy':0.05}
 
-        self.ricker.set_parameters(theta, theta_upper)
+
+        self.ricker.uncertainty_properties(theta, sigma, initial_uncertainty)
+
 
     def simulate(self, pars = "default", structured_samples = False):
 

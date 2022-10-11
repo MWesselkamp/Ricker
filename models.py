@@ -16,11 +16,9 @@ class Model(ABC):
         else:
             self.num = np.random.RandomState()
 
-        self.parameters = uncertainties["parameters"] # parameter error still missing!
-        self.initial = uncertainties["initial"] # check
-        self.process = uncertainties["process"] # check
+        self.uncertainties = uncertainties
 
-    def set_parameters(self, theta, theta_upper=None):
+    def uncertainty_properties(self, theta, sigma, initial_uncertainty):
         """
         Set true model parameters and precision for sampling under uncertainty.
         :param theta: dict. Model Parameters, i.e. r and sigma.
@@ -28,7 +26,8 @@ class Model(ABC):
         :return:
         """
         self.theta = theta
-        self.theta_upper = theta_upper
+        self.sigma = sigma
+        self.initial_uncertainty = initial_uncertainty
 
     def print_parameters(self):
         """
@@ -51,7 +50,7 @@ class Model(ABC):
 
         pass
 
-    def model_iterate(self, iterations, init, ex, process_error=False):
+    def model_iterate(self, iterations, init, ex):
 
         """
         iterations: steps to integrate over.
@@ -74,9 +73,7 @@ class Model(ABC):
             else:
                 timeseries[i] = self.model(timeseries[i - 1], ex)
 
-            if process_error:
-                #timeseries[i] = self.num.poisson(timeseries[i])  # Adjust distribution! No poisson without phi
-                timeseries[i] = self.num.normal(timeseries[i], self.theta['sigma'])
+            timeseries[i] = self.num.normal(timeseries[i], self.sigma)
 
         return timeseries
 
@@ -94,7 +91,6 @@ class Model(ABC):
         :return: tuple. simulated timeseries and its derivative.
         """
         initial_size = hp["initial_size"]
-        initial_uncertainty= hp["initial_uncertainty"]
         iterations = hp["iterations"]
         ensemble_size = hp["ensemble_size"]
 
@@ -104,19 +100,16 @@ class Model(ABC):
 
             for n in range(ensemble_size):
 
-                if self.initial:
-                    initial_condition = self.num.normal(initial_size, initial_uncertainty)
-                    # This is an artificial truncted normal distribution: Only use initial values above 1.
-                    if type(initial_size) is tuple:
-                        while any([i < 0 for i in (initial_size)]):
-                            initial_condition = self.num.normal(initial_size, initial_uncertainty)
-                    else:
-                        while initial_condition < 0:
-                            initial_condition = self.num.normal(initial_size, initial_uncertainty)
+                initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
+                # This is an artificial truncted normal distribution: Only use initial values above 1.
+                if type(initial_size) is tuple:
+                    while any([i < 0 for i in (initial_size)]):
+                        initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
                 else:
-                    initial_condition = initial_size
+                    while initial_condition < 0:
+                        initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
 
-                timeseries= self.model_iterate(iterations, initial_condition, ex, process_error = self.process)
+                timeseries= self.model_iterate(iterations, initial_condition, ex)
                 timeseries_array[n] = timeseries
 
                 if derive:
@@ -126,12 +119,9 @@ class Model(ABC):
             return self.res
 
         else:
-            if self.initial: # only if inital conditions uncertainty considered
-                initial_condition = self.num.normal(initial_size, initial_uncertainty)
-            else:
-                initial_condition = initial_size
+            initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
 
-            timeseries = self.model_iterate(iterations, initial_condition, process_error=self.process)
+            timeseries = self.model_iterate(iterations, initial_condition)
             if derive:
                 timeseries_derivative = self.model_derive(iterations, initial_condition, timeseries)
             else:
@@ -186,7 +176,7 @@ class Ricker_Single_T(Model):
 
     def model(self, N, T):
 
-        lambda_a = self.theta_upper['ax'] + self.theta_upper['bx'] * T + self.theta_upper['cx'] * T**2
+        lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T**2
 
         return N * np.exp(lambda_a*(1 - self.theta['alpha'] * N))
 
@@ -236,8 +226,8 @@ class Ricker_Multi_T(Model):
 
         N_x, N_y = N[0], N[1]
 
-        lambda_a = self.theta_upper['ax'] + self.theta_upper['bx'] * T + self.theta_upper['cx'] * T**2
-        lambda_b = self.theta_upper['ay'] + self.theta_upper['by'] * T + self.theta_upper['cy'] * T**2
+        lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T**2
+        lambda_b = self.theta['ay'] + self.theta['by'] * T + self.theta['cy'] * T**2
 
         N_x_new =  N_x * np.exp(lambda_a*(1- self.theta['alpha']*N_x - self.theta['beta']*N_y))
         N_y_new = N_y * np.exp(lambda_b*(1 - self.theta['gamma']*N_y - self.theta['delta']*N_x))
