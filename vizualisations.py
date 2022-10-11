@@ -1,6 +1,20 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
+def baseplot(x1, x2=None, transpose=False, xlab=None, ylab=None):
+    if transpose:
+        x1 = np.transpose(x1)
+        if not x2 is None:
+            x2 = np.transpose(x2)
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    ax.plot(x1, alpha=0.3, color="blue")
+    if not x2 is None:
+        ax.plot(x2, alpha=0.3, color="red")
+    ax.set_xlabel(xlab, size=14)
+    ax.set_ylabel(ylab, size=14)
+    fig.show()
+
 def plot_growth(real_dynamics):
 
     fig = plt.figure()
