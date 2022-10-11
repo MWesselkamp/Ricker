@@ -1,5 +1,4 @@
 import dynamics
-import modelclass
 import utils
 import proficiency_metrics
 import vizualisations

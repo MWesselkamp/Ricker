@@ -1,6 +1,8 @@
 import numpy as np
 from abc import ABC, abstractmethod
 import matplotlib.pyplot as plt
+import torch
+from torch.autograd import grad
 
 class Model(ABC):
 
@@ -41,12 +43,12 @@ class Model(ABC):
             print("Model parameters not set!")
 
     @abstractmethod
-    def model(self, N, stoch=False):
+    def model(self, N):
 
         pass
 
     @abstractmethod
-    def model_derivative(self, N):
+    def model_torch(self, N):
 
         pass
 
@@ -58,6 +60,7 @@ class Model(ABC):
             Either float for single forecast or vector for ensemble forecast.
         ex: exogeneous variable.
         """
+        self.ex = ex # required for derivative
 
         # Simulate one trajectory or ensemble?
         if not type(init) is float:
@@ -77,15 +80,7 @@ class Model(ABC):
 
         return timeseries
 
-    def model_derive(self, iterations, init, timeseries):
-
-        timeseries_derivative = np.full(iterations, self.model_derivative(init), dtype=np.float)
-        for i in range(1, iterations):
-            timeseries_derivative[i] = self.model_derivative(timeseries[i])
-
-        return timeseries_derivative
-
-    def simulate(self, hp, derive=True, ex = None):
+    def simulate(self, hp, ex = None):
         """
         Calls model class function iterate.
         :return: tuple. simulated timeseries and its derivative.
@@ -95,8 +90,8 @@ class Model(ABC):
         ensemble_size = hp["ensemble_size"]
 
         if not ensemble_size is None:
+
             timeseries_array = [None] * ensemble_size
-            timeseries_derivative_array = [None] * ensemble_size
 
             for n in range(ensemble_size):
 
@@ -112,31 +107,41 @@ class Model(ABC):
                 timeseries= self.model_iterate(iterations, initial_condition, ex)
                 timeseries_array[n] = timeseries
 
-                if derive:
-                    timeseries_derivative = self.model_derive(iterations, initial_condition, timeseries)
-                    timeseries_derivative_array[n] = timeseries_derivative
-            self.res = {"ts":np.array(timeseries_array), "ts_d":np.array(timeseries_derivative_array)}
-            return self.res
+            self.simulations = {"ts":np.array(timeseries_array)}
 
         else:
+
             initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
-
             timeseries = self.model_iterate(iterations, initial_condition)
-            if derive:
-                timeseries_derivative = self.model_derive(iterations, initial_condition, timeseries)
-            else:
-                timeseries_derivative = None
+            self.simulations = {"ts":timeseries}
 
-            self.res = {"ts":timeseries, "ts_d":timeseries_derivative}
-            return self.res
+        return self.simulations
+
+    def derive_model(self):
+
+        x = self.simulations["ts"]
+        df_dN = []
+        for j in range(x.shape[0]):
+            df_dN_i = []
+            for i in range(x.shape[1]):  # stepwise derivative
+                N = x[j, i]
+                N = torch.tensor(N, requires_grad=True)  # set requires_grad = True for computing the gradient
+                if not self.ex is None:
+                    dN = grad(self.model_torch(N, self.ex[i]), N)
+                df_dN_i.append(torch.tensor(dN))  # turn tuple into tensor
+            df_dN.append(torch.cat(df_dN_i).detach().numpy())
+        df_dN = np.array(df_dN)
+
+        return df_dN
+
 
     def visualise(self, x1, x2 = None):
 
         fig = plt.figure()
         ax = fig.add_subplot()
-        plt.plot(x1, color="blue")
         if not x2 is None:
             plt.plot(x2, color="lightgrey")
+        plt.plot(x1, color="blue")
         ax.set_xlabel('Time step t', size=14)
         ax.set_ylabel('Population size', size=14)
         fig.show()
@@ -160,11 +165,13 @@ class Ricker_Single(Model):
         """
         return N * np.exp(self.theta['lambda']*(1- self.theta['alpha'] * N))
 
-    def model_derivative(self, N):
+    def model_torch(self, N, ex = None):
         """
         Add numerical derivative.
         """
-        pass
+        return N * torch.exp(self.theta['lambda']*(1- self.theta['alpha'] * N))
+
+
 
 class Ricker_Single_T(Model):
 
@@ -180,13 +187,11 @@ class Ricker_Single_T(Model):
 
         return N * np.exp(lambda_a*(1 - self.theta['alpha'] * N))
 
-    def model_derivative(self, N):
-        """
-        Derivative of the Ricker at time step t.
-        :param N: Population size at time step t.
-        """
-        pass
+    def model_torch(self, N, T):
 
+        lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T ** 2
+
+        return N * torch.exp(lambda_a * (1 - self.theta['alpha'] * N))
 
 
 class Ricker_Multi(Model):
@@ -207,11 +212,14 @@ class Ricker_Multi(Model):
         else:
             return (N_x_new, N_y_new)
 
+    def model_torch(self, N, ex=None):
 
-    def model_derivative(self):
+        N_x, N_y = N[0], N[1]
 
-        pass
+        N_x_new = N_x * torch.exp(self.theta['lambda_a'] * (1 - self.theta['alpha'] * N_x - self.theta['beta'] * N_y))
+        N_y_new = N_y * torch.exp(self.theta['lambda_b'] * (1 - self.theta['gamma'] * N_y - self.theta['delta'] * N_x))
 
+        return (N_x_new, N_y_new)
 
 class Ricker_Multi_T(Model):
 
@@ -237,10 +245,17 @@ class Ricker_Multi_T(Model):
         else:
             return (N_x_new, N_y_new)
 
-    def model_derivative(self):
+    def model_torch(self, N, T):
 
-        pass
+        N_x, N_y = N[0], N[1]
 
+        lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T**2
+        lambda_b = self.theta['ay'] + self.theta['by'] * T + self.theta['cy'] * T**2
+
+        N_x_new =  N_x * torch.exp(lambda_a*(1- self.theta['alpha']*N_x - self.theta['beta']*N_y))
+        N_y_new = N_y * torch.exp(lambda_b*(1 - self.theta['gamma']*N_y - self.theta['delta']*N_x))
+
+        return (N_x_new, N_y_new)
 
 
 
