@@ -1,4 +1,5 @@
 import dynamics
+import simulations
 import utils
 import proficiency_metrics
 import vizualisations
@@ -9,43 +10,26 @@ import matplotlib.pyplot as plt
 #==========================================#
 # The Ricker model for population dynamics #
 #==========================================#
+sims = simulations.Simulator(model_type="single-species",
+                             simulation_regime="non-chaotic",
+                             environment="exogeneous")
+sims.hyper_parameters(simulated_years=2,
+                           ensemble_size=30,
+                           initial_size=20)
+xsim = sims.simulate()
+mod = sims.ricker
+xsim_derivative = mod.derive_model()
 
-# Set hyperparameters.
-its = 100 # number of iterations to simulate
-train_size = 50 # splits
-test_index = 51
-initial_size = 0.8 # inital population size
-initial_uncertainty = 1e-5 # No uncertainty in real dynamics! (Petchey 2015)
-ensemble_size = 50
+obs = simulations.Simulator(model_type="multi-species",
+                             simulation_regime="non-chaotic",
+                             environment="exogeneous")
+obs.hyper_parameters(simulated_years=2,
+                           ensemble_size=1,
+                           initial_size=(20, 20))
+xobs = obs.simulate()[:,:,0]
 
-theta = {'r':2.9, 'sigma':0.3} # true parameter values (Petchey 2015)
+dell_0 = abs(xsim[:,0]-xobs[:,0])
 
-# Initalize model
-ricker = modelclass.Ricker(initial_size, initial_uncertainty)
-ricker.set_parameters(theta = theta)
-ricker.print_parameters()
-
-
-simulator = modelclass.Simulation(ricker, iterations=its) # Create a simulator object
-# To simulate the baseline dynamics, all error sources are false
-simulator.sources_of_uncertainty(parameters=False,
-                                 initial = False,
-                                 observation = False,
-                                 stoch = False)
-ts_true, ts_true_derivative = simulator.simulate() # Create a single dynamic under perfect conditions
-
-# Simulate ensemble with perfect model knowledge by disturbing initial conditions slightly
-perfect_ensemble, perfect_ensemble_derivative = simulator.simulate(ensemble_size) # resulting trajectories are all the same!
-
-# Now disturb initial conditions slightly. Doing so, set initial to True. This will use initial_uncertainty in ricker as sd.
-# For reproducing Spring & Ilynia, disturb only after first year of initialization!
-simulator.initial = True
-perfect_ensemble_d, perfect_ensemble_derivative_d = simulator.simulate(ensemble_size) # resulting trajectories now slightly differ!
-
-ts_true[0]
-dell_0 = abs(perfect_ensemble_d[:,0]-ts_true[0])
-
-vizualisations.plot_trajectories(perfect_ensemble_d, its, np.mean(perfect_ensemble_d, axis=0))
 
 #===============#
 # Mean horizon  #
@@ -54,17 +38,17 @@ vizualisations.plot_trajectories(perfect_ensemble_d, its, np.mean(perfect_ensemb
 # Choose a forecast proficiency metric
 
 # 1. Absolute difference
-abs_diff, abs_diff_mean = proficiency_metrics.absolute_difference(ts_true, perfect_ensemble_d, mean = True)
-vizualisations.FP_absdifferences(abs_diff, abs_diff_mean, its)
+abs_diff, abs_diff_mean = proficiency_metrics.absolute_difference(xobs, xsim, mean = True)
+vizualisations.FP_absdifferences(abs_diff, abs_diff_mean, xobs.shape[1])
 
 efh_abs = np.array([i > 1 for i in abs_diff])
 fig = plt.figure()
 plt.pcolor(efh_abs)
 fig.show()
 
-threshold_seq = np.linspace(initial_uncertainty, abs_diff.max(), 20)
+threshold_seq = np.linspace(mod.initial_uncertainty, abs_diff.max(), 20)
 efhs_absdiff = np.array([horizons.efh_mean('abs_diff', abs_diff, t, ps=True) for t in threshold_seq])
-vizualisations.plot_mean_efh_varying_thresholds('absdiff', threshold_seq, efhs_absdiff, 'Absolut difference')
+vizualisations.plot_mean_efh_varying_thresholds('absdiff', efhs_absdiff, threshold_seq, 'Absolut difference')
 
 
 # 2. Mean squared error

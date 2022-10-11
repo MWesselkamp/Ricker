@@ -83,7 +83,7 @@ class Simulator:
 
         if pars == "default":
 
-            simu = self.ricker.simulate(self.hp, derive=False, ex=self.T)
+            simu = self.ricker.simulate(self.hp, ex=self.T)
             x = simu["ts"]
 
         elif pars == "structured":
