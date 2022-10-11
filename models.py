@@ -205,14 +205,17 @@ class Ricker_Multi(Model):
 
         super(Ricker_Multi, self).__init__(uncertainties, set_seed)
 
-    def model(self, N, ex = None):
+    def model(self, N, ex = None, fit = False):
 
         N_x, N_y = N[0], N[1]
 
         N_x_new =  N_x * np.exp(self.theta['lambda_a']*(1 - self.theta['alpha']*N_x - self.theta['beta']*N_y))
         N_y_new = N_y * np.exp(self.theta['lambda_b']*(1 - self.theta['gamma']*N_y - self.theta['delta']*N_x))
 
-        return (N_x_new, N_y_new)
+        if fit:
+            return N_x_new
+        else:
+            return (N_x_new, N_y_new)
 
 
     def model_derivative(self):
@@ -229,7 +232,7 @@ class Ricker_Multi_T(Model):
 
         super(Ricker_Multi_T, self).__init__(uncertainties, set_seed)
 
-    def model(self, N, T):
+    def model(self, N, T, fit=False):
 
         N_x, N_y = N[0], N[1]
 
@@ -239,7 +242,10 @@ class Ricker_Multi_T(Model):
         N_x_new =  N_x * np.exp(lambda_a*(1- self.theta['alpha']*N_x - self.theta['beta']*N_y))
         N_y_new = N_y * np.exp(lambda_b*(1 - self.theta['gamma']*N_y - self.theta['delta']*N_x))
 
-        return (N_x_new, N_y_new)
+        if fit:
+            return N_x_new
+        else:
+            return (N_x_new, N_y_new)
 
     def model_derivative(self):
 
