@@ -32,70 +32,60 @@ class Simulator:
 
     def simulation_setup(self):
 
-        self.theta_upper = None
-
-        if self.regime == "chaotic":
-            self.lam = 2.7
-        elif self.regime == "non-chaotic":
-            self.lam = 0.005
-
         if self.environment == "exogeneous":
             self.T = utils.simulate_T(self.hp['iterations'], add_trend=False, add_noise=True, show=False)
         elif self.environment == "non-exogeneous":
             self.T = None
 
+        if self.regime == "chaotic":
+            lam = 2.7
+        elif self.regime == "non-chaotic":
+            lam = 0.005
+
+        theta_upper = None
+
         if (self.type == "single-species") & (self.environment  == "non-exogeneous"):
-            self.theta = {'lambda': self.lam, 'alpha': 1 / 1000, 'sigma': 1}
+            theta = {'lambda': lam, 'alpha': 1 / 1000, 'sigma': 1}
             self.ricker = models.Ricker_Single(self.uncertainties, self.set_seed)
 
         if (self.type == "multi-species") & (self.environment  == "non-exogeneous"):
-            self.theta = {'lambda_a': self.lam, 'alpha':1/2000, 'beta':1/1950,
-                          'lambda_b': self.lam, 'gamma': 1/2000, 'delta':1/1955,
-                          'sigma':1}
+            theta = {'lambda_a': lam, 'alpha':1/2000, 'beta':1/1950,
+                    'lambda_b': lam, 'gamma': 1/2000, 'delta':1/1955,
+                    'sigma':1}
             self.ricker = models.Ricker_Multi(self.uncertainties, self.set_seed)
 
         if (self.type == "single-species") & (self.environment == "exogeneous"):
-            self.theta = { 'alpha': 1 / 1000, 'sigma': 1}
-            self.theta_upper = {'ax': self.lam, 'bx': .08, 'cx': .05}
+            theta = { 'alpha': 1 / 1000, 'sigma': 1}
+            theta_upper = {'ax': lam, 'bx': .08, 'cx': .05}
             self.ricker = models.Ricker_Single_T(self.uncertainties, self.set_seed)
 
         if (self.type == "multi-species") & (self.environment == "exogeneous"):
-            self.theta = {'alpha':1/2000, 'beta':1/1950,
+            theta = {'alpha':1/2000, 'beta':1/1950,
                           'gamma': 1/2000, 'delta':1/1955,
                           'sigma': 1}
-            self.theta_upper = {'ax': self.lam, 'bx': 0.08, 'cx': 0.05,
-                                'ay': self.lam, 'by': 0.08, 'cy':0.05}
+            theta_upper = {'ax': lam, 'bx': 0.08, 'cx': 0.05,
+                                'ay': lam, 'by': 0.08, 'cy':0.05}
             self.ricker = models.Ricker_Multi_T(self.uncertainties, self.set_seed)
 
+        self.ricker.set_parameters(theta, theta_upper)
 
-    def simulate(self, structured_samples = None):
+    def simulate(self, pars = "default", structured_samples = False):
 
+        """
+        A convenience function. Alternatively, extract ricker from simulation object and simulate.
+        :param structured_samples:
+        :return:
+        """
         self.simulation_setup()
 
-        if not structured_samples is None:
-            k = np.random.choice(np.arange(18, 50), structured_samples)
-            r = np.random.normal(self.lam, 0.5, structured_samples)
+        if pars == "default":
 
-            x = []
-            for i in range(structured_samples):
-
-                # Replace default carrying capacity and parameters by structured samples.
-                self.hp['initial_size'] = k[i]
-                self.theta['alpha'] = 1/k[i] # does not consider the second species. We're only looking at one anyways.
-                if self.type == "single-species":
-                    self.theta['lambda'] = np.exp(r[i])
-                else:
-                    self.theta_upper['ax'] = np.exp(r[i])
-
-                self.ricker.set_parameters(self.theta, self.theta_upper)
-                simu = self.ricker.simulate(self.hp, derive=False, ex=self.T)['ts']
-                x.append(simu)
-
-        else:
-
-            self.ricker.set_parameters(self.theta, self.theta_upper)
             simu = self.ricker.simulate(self.hp, derive=False, ex=self.T)
             x = simu["ts"]
+
+        elif pars == "structured":
+
+            pass
 
         if self.type == "single-species":
             self.ricker.visualise(np.transpose(x))

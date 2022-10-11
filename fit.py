@@ -95,34 +95,40 @@ def lsq_fit(mod, x_train, T, bounds = (0, [4.])):
     """
 
     def fun(pars, x, y, T):
-        mod.theta_upper['bx'] = pars[0]
-        mod.theta_upper['cx'] = pars[1]
-        mod.theta_upper['by'] = pars[2]
-        mod.theta_upper['cy'] = pars[3]
+        mod.theta_upper['ax'] = pars[0]
+        mod.theta_upper['ay'] = pars[1]
+        mod.theta_upper['bx'] = pars[2]
+        mod.theta_upper['cx'] = pars[3]
+        mod.theta_upper['by'] = pars[4]
+        mod.theta_upper['cy'] = pars[5]
         res = mod.model(x, T, fit=True) - y
         return res
 
     # Initialize parameters randomly
+    ax_init = np.random.normal(mod.theta_upper['ax'], 0.01, 1)[0]
+    ay_init = np.random.normal(mod.theta_upper['ay'], 0.01, 1)[0]
     lambda_init = np.random.normal(mod.theta_upper['bx'], 0.01, 1)[0]
     alpha_init = np.random.normal(mod.theta_upper['cx'], 0.01, 1)[0]
     beta_init = np.random.normal(mod.theta_upper['by'], 0.01, 1)[0]
     delta_init = np.random.normal(mod.theta_upper['cy'], 0.01, 1)[0]
-    p0 = [lambda_init, alpha_init, beta_init, delta_init]
+    p0 = [ax_init, ay_init, lambda_init, alpha_init, beta_init, delta_init]
 
     # Data
     x = x_train[:-1]
     y = x_train[1:]
 
-    lsq_solution = optim.least_squares(fun, p0, bounds = (-0.1, 0.1), loss = 'soft_l1', args=(x, y, T))
-    lam = lsq_solution.x[0]
-    alpha = lsq_solution.x[1]
-    beta = lsq_solution.x[2]
-    delta = lsq_solution.x[3]
+    lsq_solution = optim.least_squares(fun, p0, bounds = (0.00, 0.5), loss = 'soft_l1', args=(x, y, T))
+    ax = lsq_solution.x[0]
+    ay = lsq_solution.x[1]
+    lam = lsq_solution.x[2]
+    alpha = lsq_solution.x[3]
+    beta = lsq_solution.x[4]
+    delta = lsq_solution.x[5]
 
-    theta_hat = {'bx':lam, 'cx':alpha, 'by':beta, 'cy':delta}
+    theta_hat = {'ax':ax, 'ay':ay, 'bx':lam, 'cx':alpha, 'by':beta, 'cy':delta}
     print(theta_hat)
 
-    return theta_hat, [lam, alpha, beta, delta]
+    return theta_hat, [ax, ay, lam, alpha, beta, delta]
 
 uq = {"parameters":False, "initial":True,"process":True}
 hp = {"iterations": 2 * 52, "initial_size": 950,
@@ -150,13 +156,14 @@ ricker2.set_parameters(theta, theta_upper)
 
 fit2, fit_ls2 = lsq_fit(ricker2, x_train, T[:-1])
 
-theta_upper_hat = {'ax': fit_ls[0], 'bx': fit_ls2[0], 'cx': fit_ls2[1],
-                'ay': fit_ls[1], 'by': fit_ls2[2], 'cy': fit_ls2[3]}
+theta_upper_hat = {'ax': fit_ls2[0], 'bx': fit_ls2[0], 'cx': fit_ls2[1],
+                'ay': fit_ls2[1], 'by': fit_ls2[2], 'cy': fit_ls2[3]}
 hp = {"iterations": 4 * 52, "initial_size": (950,950),
                "initial_uncertainty": 1e-3, "ensemble_size": 10}
 T = utils.simulate_T(hp['iterations'], add_trend=False, add_noise=True, show=True)
 
 ricker2.set_parameters(theta, theta_upper_hat)
 simu = ricker2.simulate(hp, derive =False, ex=T)
-x = simu["ts"][:,:,0]
+x1 = simu["ts"][:,:,0]
+x2 = simu["ts"][:,:,1]
 baseplot(x, transpose=True)
