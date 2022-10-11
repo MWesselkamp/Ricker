@@ -18,8 +18,7 @@ class Model(ABC):
 
         self.parameters = uncertainties["parameters"] # parameter error still missing!
         self.initial = uncertainties["initial"] # check
-        self.obs_error = uncertainties["observation"] # check
-        self.stoch = uncertainties["stoch"] # check
+        self.process = uncertainties["process"] # check
 
     def set_parameters(self, theta, theta_upper=None):
         """
@@ -42,16 +41,6 @@ class Model(ABC):
         except:
             print("Model parameters not set!")
 
-    def sample_parameters(self):
-        """
-        Sample parameters from normal distribution with mean and mean*precision.
-        Not used currently.
-        """
-        pars = []
-        for par, mean in self.theta.items():
-            pars.append(self.num.normal(mean, mean * self.precision, 1)[0])
-        return pars
-
     @abstractmethod
     def model(self, N, stoch=False):
 
@@ -62,27 +51,33 @@ class Model(ABC):
 
         pass
 
-    def model_iterate(self, iterations, init, ex, obs_error=False, stoch=False):
+    def model_iterate(self, iterations, init, ex, process_error=False):
 
         """
-        Based on Wood, 2010: Statistical inference for noisy nonlinear ecological dynamic systems.
-        iterations: int.
-        init: float. Initial Population size.
-        obs_error: Add noise to simulated ts?
+        iterations: steps to integrate over.
+        init: the set of initial conditions of state variable.
+            Either float for single forecast or vector for ensemble forecast.
+        ex: exogeneous variable.
         """
+
+        # Simulate one trajectory or ensemble?
         if not type(init) is float:
             timeseries = np.full((iterations,len(init)), init, dtype=np.float)
         else:
             timeseries = np.full(iterations, init, dtype=np.float)
 
         for i in range(1, iterations):
+
+            # Exogeneous variable or not?
             if not ex is None:
-                timeseries[i] = self.model(timeseries[i - 1], ex[i], stoch)
+                timeseries[i] = self.model(timeseries[i - 1], ex[i])
             else:
-                timeseries[i] = self.model(timeseries[i - 1], ex, stoch)
-            if obs_error:
+                timeseries[i] = self.model(timeseries[i - 1], ex)
+
+            if process_error:
                 #timeseries[i] = self.num.poisson(timeseries[i])  # Adjust distribution! No poisson without phi
-                timeseries[i] = self.num.normal(timeseries[i], 1)
+                timeseries[i] = self.num.normal(timeseries[i], self.theta['sigma'])
+
         return timeseries
 
     def model_derive(self, iterations, init, timeseries):
@@ -121,7 +116,7 @@ class Model(ABC):
                 else:
                     initial_condition = initial_size
 
-                timeseries= self.model_iterate(iterations, initial_condition, ex, obs_error = self.obs_error, stoch = self.stoch)
+                timeseries= self.model_iterate(iterations, initial_condition, ex, process_error = self.process)
                 timeseries_array[n] = timeseries
 
                 if derive:
@@ -136,7 +131,7 @@ class Model(ABC):
             else:
                 initial_condition = initial_size
 
-            timeseries = self.model_iterate(iterations, initial_condition, obs_error=self.obs_error, stoch=self.stoch)
+            timeseries = self.model_iterate(iterations, initial_condition, process_error=self.process)
             if derive:
                 timeseries_derivative = self.model_derive(iterations, initial_condition, timeseries)
             else:
@@ -168,7 +163,7 @@ class Ricker_Single(Model):
 
         super(Ricker_Single, self).__init__(uncertainties, set_seed)
 
-    def model(self, N, ex = None, stoch=False):
+    def model(self, N, ex = None):
         """
         With or without stochasticity (Woods 2010).
         :param N: Population size at time step t.
@@ -187,13 +182,10 @@ class Ricker_Single_T(Model):
         """
         Initializes model as the Ricker model (Petchey 2015).
         """
-
         super(Ricker_Single_T, self).__init__(uncertainties, set_seed)
 
-    def model(self, N, T, stoch = False):
+    def model(self, N, T):
 
-        if stoch:
-            T = self.num.normal(T, self.theta['sigma'])
         lambda_a = self.theta_upper['ax'] + self.theta_upper['bx'] * T + self.theta_upper['cx'] * T**2
 
         return N * np.exp(lambda_a*(1 - self.theta['alpha'] * N))
@@ -213,7 +205,7 @@ class Ricker_Multi(Model):
 
         super(Ricker_Multi, self).__init__(uncertainties, set_seed)
 
-    def model(self, N, ex = None, stoch = False):
+    def model(self, N, ex = None):
 
         N_x, N_y = N[0], N[1]
 
@@ -237,7 +229,7 @@ class Ricker_Multi_T(Model):
 
         super(Ricker_Multi_T, self).__init__(uncertainties, set_seed)
 
-    def model(self, N, T, stoch = False):
+    def model(self, N, T):
 
         N_x, N_y = N[0], N[1]
 

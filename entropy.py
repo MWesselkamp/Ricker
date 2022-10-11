@@ -1,61 +1,31 @@
 import numpy as np
-from pyinform.dist import Dist
-from pyinform.shannon import entropy, relative_entropy
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity
 import simulations
-
+from vizualisations import baseplot
 # For calculation of permutation entropy
 import scipy.stats as ss
 from collections import Counter
 from math import factorial
 
-# Shannon Entropy
-# Is Zero, when there is no more uncertainty, i.e. the probability associated with an outcome becomes 1.
-
-# step one: Calculate the relative frequency of events occurring in a sequence.
-# step two: Sum up the relative frequency and the log(relative frequency) of all events.
-# Shannon Entropy for discrete distribution
-m = np.random.randint(0,50,1000)
-d = Dist(50)
-for x in m:
-    d.tick(x)
-print(entropy(d, b = 50))
-
-# Relative Entropy between posterior (p) and prior (q) distributions: Information gained in switching from prior to posterior.
-p = Dist([4,1])
-q = Dist([1,1])
-relative_entropy(p, q)
-relative_entropy(q, p)
-
-
 # So what distributions, if not discrete empirical distributions?
 # Lets use a stepwise Kernel Density Estimation.
-# I want a density function for every week of the year.
 
-
-# create simulator object
-sims = simulations.Simulator()
-# Set hyperparameters. We'll simulate on a weekly resolution. Years is changed to weeks.
+sims = simulations.Simulator(model_type="single-species",
+                             simulation_regime="non-chaotic",
+                             environment="non-exogeneous")
 sims.hyper_parameters(simulated_years=100,
-                           ensemble_size=30,
-                           initial_size=(950)) # here we have to give init for both populations
-sims.simulation_parameters(regime="non-chaotic", behaviour="stochastic")
-sims.environment('non-exogeneous', trend=False)
-sims.model_type("single-species")
+                        ensemble_size=10,
+                        initial_size=(950)) # here we have to give init for both populations
 x = sims.simulate()
 x_pred, x_clim = np.split(x, 2, axis=1)
 
-fig = plt.figure()
-ax = fig.add_subplot()
-ax.plot(np.transpose(x_clim), alpha=0.3, color = "blue")
-ax.plot(np.transpose(x_pred), alpha=0.3, color= "red")
-ax.set_xlabel('Time steps (Generation)', size=14)
-ax.set_ylabel('Population size', size=14)
-fig.show()
+baseplot(x_clim, x_pred,transpose=True,
+         xlab='Time steps (Generation)',
+         ylab='Population size')
 
 ys = np.concatenate(x_clim)
-kde = KernelDensity(kernel='gaussian', bandwidth=.5).fit(ys[:, np.newaxis])  # the higher the bandwidth the smoother
+kde = KernelDensity(kernel='gaussian', bandwidth=.8).fit(ys[:, np.newaxis])  # the higher the bandwidth the smoother
 # what is the range we use? The min and max ever realized in that periods.
 new_ys = np.linspace(x.min(), x.max(), 300)[:, np.newaxis]
 dens_clim = np.round(np.exp(kde.score_samples(new_ys)), 50)
@@ -91,18 +61,39 @@ def iterate_RE(dens_clim, dens_pred):
         RE.append(relative_entropy(dens_pred[i], dens_clim))
     return RE
 
-    fig = plt.figure()
-    ax = fig.add_subplot()
-    ax.plot(RE)
-    fig.show()
+    baseplot(RE)
 
 ## Running into problems because most densities are 0.
 ## changed zeros to very small non-zero values. This however, will create a biased RE:
 # The probability densities won't actually sum up to 1 anymore.
+# One solution: Scale the values
+def scale(x):
+    return (x-np.mean(x))/np.std(x)
+
+x_clim_scaled = scale(x_clim)
+x_pred_scaled  = scale(x_pred)
+
+baseplot(x_clim_scaled, x_pred_scaled,transpose=True,
+         xlab='Time steps (Generation)',
+         ylab='Population size')
+
+# Let's change approach: Do a histogram over the whole range
+# Use quantile bins, self computed.
+# We assume the climatological distr doesnt change anymore. Just flatten all available data for the histogram.
+l = np.linspace(0.01,0.99,20)
+qs = np.quantile(x_clim.flatten(), l)
+
+hist_clim, bin_edges = np.histogram(x_clim, bins = qs, range=(x.min(), x.max()), density=True)
+hist_clim.sum()
+probs = hist_clim*np.diff(bin_edges)
+
+fig = plt.figure()
+plt.bar(bin_edges[:-1],hist_clim,width=1)
+fig.show()
+
 
 # Continued: Let's explore the permutation entropy, based on Pennekamp 2019
 # PE based on an embedded time series
-
 def embed(x, m, d = 1):
     """
     Pennekamp 2019
