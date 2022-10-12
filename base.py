@@ -2,6 +2,7 @@ import dynamics
 import simulations
 import utils
 import vizualisations
+import forecast_ensemble
 import horizons
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,23 +20,22 @@ xsim = sims.simulate()
 mod = sims.ricker
 xsim_derivative = mod.derive_model()
 
-import forecast_ensemble
 
-perfect_ensemble = forecast_ensemble.PerfectEnsemble(reference="control",
-                                                     metric="rolling_rmse")
+perfect_ensemble = forecast_ensemble.PerfectEnsemble(reference="historic_mean",
+                                                     metric="rolling_rmse",
+                                                     evaluation_style="bootstrap")
 
 perfect_ensemble.verify(xsim)
-v_rmse = perfect_ensemble.verification
-vizualisations.baseplot(v_rmse,transpose=True)
+
+v_mod = perfect_ensemble.verification_model
+v_ref = perfect_ensemble.verification_reference
+vizualisations.baseplot(v_mod,v_ref, transpose=True)
 
 perfect_ensemble.reference = "bootstrap"
-perfect_ensemble.verify(xsim)
-v_absdiff = perfect_ensemble.verification
-vizualisations.baseplot(v_absdiff.mean(axis=0),transpose=True)
-perfect_ensemble.metric = "rolling_mse"
-perfect_ensemble.verify(xsim)
-v_mse = perfect_ensemble.verification
-vizualisations.baseplot(v_mse.mean(axis=0),transpose=True)
+
+v_mod = perfect_ensemble.verification_model
+v_ref = perfect_ensemble.verification_reference
+vizualisations.baseplot(np.mean(v_mod, axis=0),np.mean(v_ref,axis=0), transpose=True)
 
 #============================================================#
 # What do you want do want to validate the forecast against? #
