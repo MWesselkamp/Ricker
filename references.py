@@ -14,4 +14,9 @@ def historic_mean(observations):
 
     return historic_mean
 
+def persistence(observations):
+
+    x_pred = observations[:,-1]
+    return x_pred
+
 

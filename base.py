@@ -51,9 +51,34 @@ obs.hyper_parameters(simulated_years=2,
                            ensemble_size=1,
                            initial_size=(20, 20))
 xobs = obs.simulate()[:,:,0]
-
 dell_0 = abs(xsim[:,0]-xobs[:,0])
 
+hindcasting_ensemble = forecast_ensemble.HindcastingEnsemble(reference="historic_mean",
+                                                     metric="rolling_rmse",
+                                                     evaluation_style="single")
+
+hindcasting_ensemble.verify(xsim, xobs)
+
+v_mod = hindcasting_ensemble.verification_model
+v_ref = hindcasting_ensemble.verification_reference
+vizualisations.baseplot(v_mod,v_ref, transpose=True)
+
+#===================#
+# Now with forecast #
+#===================#
+
+sims.forecast(years = 2)
+xpred = sims.forecast_simulation['ts']
+vizualisations.baseplot(xpred, transpose=True)
+
+prediction_ensemble = forecast_ensemble.PredictionEnsemble(reference="historic_mean",
+                                                     metric="rolling_rmse",
+                                                     evaluation_style="single")
+
+prediction_ensemble.verify(xpred, xobs)
+v_pred = prediction_ensemble.verification_forecast
+v_ref = prediction_ensemble.reference_simulation
+vizualisations.baseplot(v_pred, v_ref, transpose=True)
 
 #===============#
 # Mean horizon  #

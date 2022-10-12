@@ -61,6 +61,8 @@ class Model(ABC):
         ex: exogeneous variable.
         """
         self.ex = ex # required for derivative
+        if type(init) is np.float64:
+            init = init.item()
 
         # Simulate one trajectory or ensemble?
         if not type(init) is float:
@@ -95,16 +97,21 @@ class Model(ABC):
 
             for n in range(ensemble_size):
 
-                initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
-                # This is an artificial truncted normal distribution: Only use initial values above 1.
-                if type(initial_size) is tuple:
-                    while any([i < 0 for i in (initial_size)]):
-                        initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
-                else:
-                    while initial_condition < 0:
-                        initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
+                if type(initial_size) is np.ndarray:
 
-                timeseries= self.model_iterate(iterations, initial_condition, ex)
+                    initial_condition = initial_size[n]
+
+                else:
+                    initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
+                    # This is an artificial truncted normal distribution: Only use initial values above 1.
+                    if type(initial_size) is tuple:
+                        while any([i < 0 for i in (initial_size)]):
+                            initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
+                    else:
+                        while initial_condition < 0:
+                            initial_condition = self.num.normal(initial_size, self.initial_uncertainty)
+
+                timeseries = self.model_iterate(iterations, initial_condition, ex)
                 timeseries_array[n] = timeseries
 
             self.simulations = {"ts":np.array(timeseries_array)}

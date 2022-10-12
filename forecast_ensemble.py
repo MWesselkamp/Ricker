@@ -20,7 +20,7 @@ class PerfectEnsemble(ForecastEnsemble):
 
         super(PerfectEnsemble, self).__init__(reference, metric, evaluation_style)
 
-    def verify(self, ensemble, show=True):
+    def verify(self, ensemble):
 
         if self.eval_style == "single":
 
@@ -54,21 +54,35 @@ class PerfectEnsemble(ForecastEnsemble):
             self.verification_reference = np.array(verification_reference)
 
 
-    def plot(self, x, x_mean = None, transpose = False, log=False):
+class HindcastingEnsemble(ForecastEnsemble):
 
-        fig = plt.figure()
-        ax = fig.add_subplot()
-        if log:
-            x = np.log(x)
-        if transpose:
-            x = np.transpose(x)
-        plt.plot(x, color="lightgrey")
-        if not x_mean is None:
-            plt.plot(np.mean(x, axis=x_mean), color="black", label="Ensemble mean")
-        ax.set_xlabel("Time steps")
-        ax.set_ylabel(self.metric)
-        ax.legend(loc="upper left", prop={"size": 14})
-        ax.tick_params(axis='both', which='major', labelsize=12)
-        fig.show()
+    def __init__(self, reference, metric, evaluation_style):
+
+        super(HindcastingEnsemble, self).__init__(reference, metric, evaluation_style)
+
+    def verify(self, ensemble, truth):
+
+        if self.eval_style == "single":
+
+            reference_n = self.reference_fun(truth)
+
+            self.verification_model = self.metric_fun(truth, ensemble)
+            self.verification_reference = self.metric_fun(truth, reference_n)
 
 
+class PredictionEnsemble(ForecastEnsemble):
+
+    def __init__(self, reference, metric, evaluation_style):
+
+        super(PredictionEnsemble, self).__init__(reference, metric, evaluation_style)
+
+    def verify(self, ensemble, observations):
+
+        if self.eval_style == "single":
+
+            reference_n = self.reference_fun(observations)
+            # last one is the historic mean from all data we have so far
+            reference_n = np.full(reference_n.shape, reference_n[:,-1])
+
+            self.reference_simulation = reference_n
+            self.verification_forecast = self.metric_fun(reference_n, ensemble)
