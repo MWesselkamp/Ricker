@@ -1,7 +1,6 @@
 import dynamics
 import simulations
 import utils
-import proficiency_metrics
 import vizualisations
 import horizons
 import numpy as np
@@ -19,6 +18,31 @@ sims.hyper_parameters(simulated_years=2,
 xsim = sims.simulate()
 mod = sims.ricker
 xsim_derivative = mod.derive_model()
+
+import forecast_ensemble
+
+perfect_ensemble = forecast_ensemble.PerfectEnsemble(reference="control",
+                                                     metric="rolling_rmse")
+
+perfect_ensemble.verify(xsim)
+v_rmse = perfect_ensemble.verification
+vizualisations.baseplot(v_rmse,transpose=True)
+
+perfect_ensemble.reference = "bootstrap"
+perfect_ensemble.verify(xsim)
+v_absdiff = perfect_ensemble.verification
+vizualisations.baseplot(v_absdiff.mean(axis=0),transpose=True)
+perfect_ensemble.metric = "rolling_mse"
+perfect_ensemble.verify(xsim)
+v_mse = perfect_ensemble.verification
+vizualisations.baseplot(v_mse.mean(axis=0),transpose=True)
+
+#============================================================#
+# What do you want do want to validate the forecast against? #
+#============================================================#
+
+# The reference: Here Observations (simulated but who cares)
+# As such, is this hindcasting?
 
 obs = simulations.Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
