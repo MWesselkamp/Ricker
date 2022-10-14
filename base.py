@@ -20,22 +20,21 @@ xsim = sims.simulate()
 mod = sims.ricker
 xsim_derivative = mod.derive_model()
 
+perfect_ensemble = forecast_ensemble.PerfectEnsemble(ensemble_predictions=xsim,
+                                                     reference="rolling_historic_mean")
+perfect_ensemble.verification_settings(metric = "rolling_rmse",
+                                       evaluation_style="single")
+perfect_ensemble.accuracy()
 
-perfect_ensemble = forecast_ensemble.PerfectEnsemble(reference="historic_mean",
-                                                     metric="rolling_rmse",
-                                                     evaluation_style="bootstrap")
+if perfect_ensemble.meta['evaluation_style'] == "single":
+    control = xsim[perfect_ensemble.meta['other']['ensemble_index']]
+    vizualisations.baseplot(xsim, control, transpose=True)
+    vizualisations.baseplot(perfect_ensemble.accuracy_model, perfect_ensemble.accuracy_reference, transpose=True)
+elif perfect_ensemble.meta['evaluation_style'] == "bootstrap":
+    vizualisations.baseplot(np.mean(perfect_ensemble.accuracy_model, axis=0), np.mean(perfect_ensemble.accuracy_reference,axis=0), transpose=True)
 
-perfect_ensemble.verify(xsim)
-
-v_mod = perfect_ensemble.verification_model
-v_ref = perfect_ensemble.verification_reference
-vizualisations.baseplot(v_mod,v_ref, transpose=True)
-
-perfect_ensemble.reference = "bootstrap"
-
-v_mod = perfect_ensemble.verification_model
-v_ref = perfect_ensemble.verification_reference
-vizualisations.baseplot(np.mean(v_mod, axis=0),np.mean(v_ref,axis=0), transpose=True)
+perfect_ensemble.skill()
+vizualisations.baseplot(perfect_ensemble.forecast_skill, transpose=True)
 
 #============================================================#
 # What do you want do want to validate the forecast against? #
@@ -53,15 +52,14 @@ obs.hyper_parameters(simulated_years=2,
 xobs = obs.simulate()[:,:,0]
 dell_0 = abs(xsim[:,0]-xobs[:,0])
 
-hindcasting_ensemble = forecast_ensemble.HindcastingEnsemble(reference="historic_mean",
-                                                     metric="rolling_rmse",
-                                                     evaluation_style="single")
+prediction_ensemble = forecast_ensemble.PredictionEnsemble(ensemble_predictions=xsim,
+                                                           observations=xobs,
+                                                     reference="rolling_historic_mean")
+prediction_ensemble.verification_settings(metric = "rolling_rmse",
+                                       evaluation_style="single")
+prediction_ensemble.accuracy()
 
-hindcasting_ensemble.verify(xsim, xobs)
-
-v_mod = hindcasting_ensemble.verification_model
-v_ref = hindcasting_ensemble.verification_reference
-vizualisations.baseplot(v_mod,v_ref, transpose=True)
+vizualisations.baseplot(prediction_ensemble.accuracy_model,prediction_ensemble.accuracy_reference, transpose=True)
 
 #===================#
 # Now with forecast #
@@ -78,7 +76,10 @@ prediction_ensemble = forecast_ensemble.PredictionEnsemble(reference="historic_m
 prediction_ensemble.verify(xpred, xobs)
 v_pred = prediction_ensemble.verification_forecast
 v_ref = prediction_ensemble.reference_simulation
-vizualisations.baseplot(v_pred, v_ref, transpose=True)
+vizualisations.baseplot(xpred, v_ref, transpose=True,
+                        ylab="Population size")
+vizualisations.baseplot(v_pred, transpose=True,
+                        ylab="RMSE")
 
 #===============#
 # Mean horizon  #

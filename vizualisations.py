@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-def baseplot(x1, x2=None, transpose=False, xlab=None, ylab=None):
+def baseplot(x1, x2=None, x3 = None, transpose=False, xlab=None, ylab=None):
     if transpose:
         x1 = np.transpose(x1)
         if not x2 is None:
@@ -11,6 +11,8 @@ def baseplot(x1, x2=None, transpose=False, xlab=None, ylab=None):
     ax.plot(x1, alpha=0.3, color="blue")
     if not x2 is None:
         ax.plot(x2, alpha=0.3, color="red")
+    if not x3 is None:
+        ax.plot(x3, alpha=0.3, color="green")
     ax.set_xlabel(xlab, size=14)
     ax.set_ylabel(ylab, size=14)
     fig.show()

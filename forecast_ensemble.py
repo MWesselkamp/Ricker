@@ -6,83 +6,120 @@ import references
 
 class ForecastEnsemble(ABC):
 
-    def __init__(self, reference, metric, evaluation_style):
+    def __init__(self, ensemble_predictions, reference):
 
-        self.metric = metric
-        self.reference = reference
-        self.eval_style = evaluation_style
-        self.metric_fun = getattr(metrics, self.metric)
-        self.reference_fun = getattr(references, self.reference)
+        self.ensemble_predictions = ensemble_predictions
+        self.reference_model = getattr(references, reference)
+        self.meta = {'reference': reference,
+                     'evaluation_style':None,
+                     'metric':None,
+                     'other': {'ensemble_index':None} }
+
+    def verification_settings(self, metric, evaluation_style):
+
+        self.metric_fun = getattr(metrics, metric)
+        self.meta['evaluation_style'] = evaluation_style
+        self.meta['metric'] = metric
 
 class PerfectEnsemble(ForecastEnsemble):
 
-    def __init__(self, reference, metric, evaluation_style):
+    def __init__(self, ensemble_predictions, reference):
 
-        super(PerfectEnsemble, self).__init__(reference, metric, evaluation_style)
+        super(PerfectEnsemble, self).__init__(ensemble_predictions, reference)
 
-    def verify(self, ensemble):
+    def sample_ensemble_member(self):
 
-        if self.eval_style == "single":
+        emsemble_index = np.random.randint(0, self.ensemble_predictions.shape[0], 1)
+        control = self.ensemble_predictions[emsemble_index, :]
+        ensemble_n = np.delete(self.ensemble_predictions, emsemble_index, axis=0)
 
-            c = np.random.randint(0, ensemble.shape[0], 1)
-            control = ensemble[c, :]
-            ensemble_n = np.delete(ensemble, c, 0)
+        return control, ensemble_n, emsemble_index
 
-            reference_n = self.reference_fun(control)
+    def accuracy(self):
 
-            self.verification_model = self.metric_fun(control, ensemble_n)
-            self.verification_reference = self.metric_fun(control, reference_n)
+        if self.meta['evaluation_style'] == "single":
+            # self.ensemble index for plotting
+            control, ensemble_n, emsemble_index = self.sample_ensemble_member()
+            self.meta['other']['ensemble_index'] = emsemble_index
 
-        elif self.eval_style == "bootstrap":
+            reference_simulation = self.reference_model(control)
+
+            self.accuracy_model = self.metric_fun(control, ensemble_n)
+            self.accuracy_reference = self.metric_fun(control, reference_simulation)
+
+        elif self.meta['evaluation_style'] == "bootstrap":
 
             bs = 100
-            verification_model = []
-            verification_reference = []
+            accuracy_model = []
+            accuracy_reference = []
+            reference_simulation = []
 
             for i in range(bs):
 
-                c = np.random.randint(0, ensemble.shape[0], 1)
-                control = ensemble[c, :]
-                ensemble_n = np.delete(ensemble, c, 0)
+                control, ensemble_n, emsemble_index = self.sample_ensemble_member()
 
-                reference_n = self.reference_fun(control)
+                reference_n = self.reference_model(control)
+                reference_simulation.append(reference_n)
 
-                verification_model.append(self.metric_fun(control, ensemble_n))
-                verification_reference.append(self.metric_fun(control, reference_n))
+                accuracy_model.append(self.metric_fun(control, ensemble_n))
+                accuracy_reference.append(self.metric_fun(control, reference_n))
 
-            self.verification_model = np.array(verification_model)
-            self.verification_reference = np.array(verification_reference)
+            self.accuracy_model = np.array(accuracy_model)
+            self.accuracy_reference = np.array(accuracy_reference)
 
+        self.reference_simulation = reference_simulation
 
-class HindcastingEnsemble(ForecastEnsemble):
+    def skill(self):
 
-    def __init__(self, reference, metric, evaluation_style):
+        if self.meta['evaluation_style'] == "single":
 
-        super(HindcastingEnsemble, self).__init__(reference, metric, evaluation_style)
+            control, ensemble_n, emsemble_index = self.sample_ensemble_member()
 
-    def verify(self, ensemble, truth):
+            reference_simulation = self.reference_model(control)
 
-        if self.eval_style == "single":
+            self.forecast_skill = self.metric_fun(reference_simulation, ensemble_n)
 
-            reference_n = self.reference_fun(truth)
+        elif self.meta['evaluation_style'] == "bootstrap":
 
-            self.verification_model = self.metric_fun(truth, ensemble)
-            self.verification_reference = self.metric_fun(truth, reference_n)
+            bs = 100
+            forecast_skill = []
+            reference_simulation = []
 
+            for i in range(bs):
+
+                control, ensemble_n, emsemble_index = self.sample_ensemble_member()
+
+                reference_n = self.reference_model(control)
+
+                reference_simulation.append(reference_n)
+                forecast_skill.append(self.metric_fun(reference_n, ensemble_n))
+
+            self.forecast_skill = np.array(forecast_skill)
+
+        self.reference_simulation = reference_simulation
 
 class PredictionEnsemble(ForecastEnsemble):
 
-    def __init__(self, reference, metric, evaluation_style):
+    def __init__(self, ensemble_predictions, observations, reference):
 
-        super(PredictionEnsemble, self).__init__(reference, metric, evaluation_style)
+        self.observations = observations
 
-    def verify(self, ensemble, observations):
+        super(PredictionEnsemble, self).__init__(ensemble_predictions, reference)
 
-        if self.eval_style == "single":
+    def accuracy(self):
 
-            reference_n = self.reference_fun(observations)
-            # last one is the historic mean from all data we have so far
-            reference_n = np.full(reference_n.shape, reference_n[:,-1])
+        if self.meta['evaluation_style'] == "single":
+
+            reference_n = self.reference_model(self.observations)
+
+            self.accuracy_model = self.metric_fun(self.observations, self.ensemble_predictions)
+            self.accuracy_reference = self.metric_fun(self.observations, reference_n)
+
+    def skill(self):
+
+        if self.meta['evaluation_style'] == "single":
+
+            reference_n = self.reference_model(self.observations)
 
             self.reference_simulation = reference_n
-            self.verification_forecast = self.metric_fun(reference_n, ensemble)
+            self.forecast_skill = self.metric_fun(reference_n, self.ensemble_predictions)
