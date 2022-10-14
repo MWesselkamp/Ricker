@@ -1,6 +1,6 @@
 import numpy as np
 
-def rolling_historic_mean(observations):
+def rolling_historic_mean(observations, predictions = None):
 
     hmean = np.zeros(observations.shape)
     hvar = np.zeros(observations.shape)
@@ -12,15 +12,24 @@ def rolling_historic_mean(observations):
 
     return hmean
 
-def historic_mean(observations):
-    hmean = np.mean(observations, axis=0)
-    hvar = np.std(observations, axis=0)
+def historic_mean(observations, predictions = None):
 
-    return np.full(observations.shape, hmean)
+    if not predictions is None:
+        sh = predictions.shape
+    else:
+        sh = observations.shape
+    hmean = np.mean(observations) #, axis=0)
+    hvar = np.std(observations)#, axis=0)
+    return np.full(sh, hmean)
 
-def persistence(observations):
+def persistance(observations, predictions = None):
+
+    if not predictions is None:
+        sh = predictions.shape
+    else:
+        sh = observations.shape
 
     x_pred = observations[:,-1]
-    return np.full(observations.shape, x_pred)
+    return np.full(sh, x_pred)
 
 

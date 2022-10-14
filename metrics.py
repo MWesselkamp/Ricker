@@ -35,7 +35,7 @@ def rolling_rmse(reference, ensemble, standardized = False):
         rmses.append(rmse)
     return np.transpose(np.array(rmses))
 
-def rolling_corrs(reference, ensemble, window = 3):
+def rolling_corrs(reference, ensemble, window = 3, abs = False):
     """
     Rolling correlations between true and predicted dynamics in a moving window.
     Change to cross-correlation?
@@ -52,7 +52,10 @@ def rolling_corrs(reference, ensemble, window = 3):
             ecorrs.append(pearsonr(reference[0,j:j+window], ensemble[i,j:j+window])[0])
         corrs.append(ecorrs)
     corrs = np.transpose(np.array(corrs))
-    return corrs
+    if abs:
+        return abs(corrs)
+    else:
+        return corrs
 
 def rmse(reference, ensemble, standardized = False):
     if standardized:

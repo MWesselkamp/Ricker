@@ -119,7 +119,20 @@ class PredictionEnsemble(ForecastEnsemble):
 
         if self.meta['evaluation_style'] == "single":
 
-            reference_n = self.reference_model(self.observations)
+            reference_n = self.reference_model(self.observations, self.ensemble_predictions)
 
             self.reference_simulation = reference_n
             self.forecast_skill = self.metric_fun(reference_n, self.ensemble_predictions)
+
+    def horizon(self, threshold, type="mean_skill"):
+
+        mean_skill = np.mean(self.forecast_skill, axis=0)
+
+        if type == "mean_skill":
+            fhs = np.array([i < threshold for i in mean_skill])
+            return fhs
+        else:
+            fhs = np.array([i < threshold for i in self.forecast_skill])
+            fhs_mean = np.mean(fhs.astype(int), axis=0)
+            self.fhs = fhs # for plotting
+            return fhs_mean

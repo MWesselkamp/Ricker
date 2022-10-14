@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="exogeneous")
-sims.hyper_parameters(simulated_years=2,
+sims.hyper_parameters(simulated_years=4,
                            ensemble_size=30,
                            initial_size=20)
 xsim = sims.simulate()
@@ -46,7 +46,7 @@ vizualisations.baseplot(perfect_ensemble.forecast_skill, transpose=True)
 obs = simulations.Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
                              environment="exogeneous")
-obs.hyper_parameters(simulated_years=2,
+obs.hyper_parameters(simulated_years=4,
                            ensemble_size=1,
                            initial_size=(20, 20))
 xobs = obs.simulate()[:,:,0]
@@ -54,87 +54,43 @@ dell_0 = abs(xsim[:,0]-xobs[:,0])
 
 prediction_ensemble = forecast_ensemble.PredictionEnsemble(ensemble_predictions=xsim,
                                                            observations=xobs,
-                                                     reference="rolling_historic_mean")
-prediction_ensemble.verification_settings(metric = "rolling_rmse",
+                                                            reference="rolling_historic_mean")
+prediction_ensemble.verification_settings(metric = "rolling_corrs",
                                        evaluation_style="single")
 prediction_ensemble.accuracy()
-
 vizualisations.baseplot(prediction_ensemble.accuracy_model,prediction_ensemble.accuracy_reference, transpose=True)
+
+prediction_ensemble.skill()
+vizualisations.baseplot(prediction_ensemble.forecast_skill, transpose=True,
+                        ylab="rolling_corrs")
 
 #===================#
 # Now with forecast #
 #===================#
 
-sims.forecast(years = 2)
+sims.forecast(years = 2, observations=xobs)
 xpred = sims.forecast_simulation['ts']
 vizualisations.baseplot(xpred, transpose=True)
 
-prediction_ensemble = forecast_ensemble.PredictionEnsemble(reference="historic_mean",
-                                                     metric="rolling_rmse",
-                                                     evaluation_style="single")
+prediction_ensemble = forecast_ensemble.PredictionEnsemble(ensemble_predictions=xpred,
+                                                           observations=xobs,
+                                                            reference="persistance")
+prediction_ensemble.verification_settings(metric = "absolute_differences",
+                                       evaluation_style="single")
 
-prediction_ensemble.verify(xpred, xobs)
-v_pred = prediction_ensemble.verification_forecast
+prediction_ensemble.skill()
+
 v_ref = prediction_ensemble.reference_simulation
 vizualisations.baseplot(xpred, v_ref, transpose=True,
                         ylab="Population size")
-vizualisations.baseplot(v_pred, transpose=True,
-                        ylab="RMSE")
-
-#===============#
-# Mean horizon  #
-#===============#
-
-# Choose a forecast proficiency metric
-
-# 1. Absolute difference
-abs_diff, abs_diff_mean = proficiency_metrics.absolute_difference(xobs, xsim, mean = True)
-vizualisations.FP_absdifferences(abs_diff, abs_diff_mean, xobs.shape[1])
-
-efh_abs = np.array([i > 1 for i in abs_diff])
-fig = plt.figure()
-plt.pcolor(efh_abs)
-fig.show()
-
-threshold_seq = np.linspace(mod.initial_uncertainty, abs_diff.max(), 20)
-efhs_absdiff = np.array([horizons.efh_mean('abs_diff', abs_diff, t, ps=True) for t in threshold_seq])
-vizualisations.plot_mean_efh_varying_thresholds('absdiff', efhs_absdiff, threshold_seq, 'Absolut difference')
+vizualisations.baseplot(prediction_ensemble.forecast_skill, transpose=True,
+                        ylab="rolling_corrs")
 
 
-# 2. Mean squared error
-# Metric Parameter: Moving window
-mse = proficiency_metrics.mean_squared_error(ts_true, perfect_ensemble_d)
-mse_rolling = proficiency_metrics.mean_squared_error_rolling(ts_true, perfect_ensemble_d)
+mean_skill_horizon = prediction_ensemble.horizon(threshold=1)
+prob_of_exceeding_threshold = prediction_ensemble.horizon(threshold=1, type="skill")
+vizualisations.baseplot(prob_of_exceeding_threshold)
 
-efh_mse, pred_skills  = horizons.efh_mean('mse', mse_rolling, 0.5)
-fig = plt.figure()
-plt.pcolor(efh_mse)
-fig.show()
-
-# Predict Forecast horizon under varying threshold for proficiency metrics.
-threshold_seq = np.linspace(initial_uncertainty, 1.5, 20)
-efhs_mse = np.array([horizons.efh_mean('mse', mse_rolling, t, ps=True) for t in threshold_seq])
-vizualisations.plot_mean_efh_varying_thresholds('mse', efhs_mse, threshold_seq, 'MSE','lower right')
-
-# 3. Correlation
-# Metric Parameter: Moving window of size 3 (Petchey.)
-corrs = proficiency_metrics.rolling_corrs(ts_true, perfect_ensemble_d, window=3)
-vizualisations.FP_correlation(corrs)
-
-threshold_seq = np.linspace(initial_uncertainty, 1, 20)
-efh_corr, efh_corr_min = horizons.efh_mean('corr', corrs, 0.5)
-efhs_corrs = np.array([horizons.efh_mean('corr', corrs, t, ps=True) for t in threshold_seq])
-vizualisations.plot_mean_efh_varying_thresholds('corr', efhs_corrs, threshold_seq, 'Pearsons R','lower left')
-
-# For the correlation now consider the moving window as additional parameter.
-mcorrs  = []
-window = np.arange(3, 10)
-for wind in window:
-    mcorrs.append(proficiency_metrics.rolling_corrs(ts_true, perfect_ensemble_d, window=wind))
-efhs_mcorrs = np.array([horizons.efh_mean('corr', mcorrs[i], t, ps=True) for t in threshold_seq for i in range(len(mcorrs))])
-efhs_mcorrs = efhs_mcorrs.reshape(20, 7, ensemble_size)
-ehfs_mcorrs_m = np.mean(efhs_mcorrs, axis=2)
-vizualisations.plot_efh_varying_thresholds_HP('corr', efhs_mcorrs, ehfs_mcorrs_m, threshold_seq, ensemble_size)
 
 
 #==================#
