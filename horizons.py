@@ -1,27 +1,18 @@
 import numpy as np
 
-def efh_mean(metric, profiencies, threshold, ps = False):
-    """
-    1. Function parameter: threshold.
-    """
-    profiencies_mean = profiencies.mean(axis=0)
+def mean_forecastskill(forecast_skill, threshold):
 
-    if metric == 'corr':
-        efh = np.array([i < threshold for i in profiencies])
-        pred_skills = np.argmax(profiencies < threshold, axis=1)
-        #mean_pred_skill = min(np.arange(profiencies.shape[1])[profiencies_mean < threshold])
-    elif metric in ['mse', 'abs_diff']:
-        efh = np.array([i > threshold for i in profiencies])
-        pred_skills = np.argmax(profiencies > threshold, axis=1)
-        # pred_skills = [min(np.arange(profiencies.shape[1])[efh[i,:]]) for i in range(profiencies.shape[0])]
-        # mean_pred_skill = min(np.arange(profiencies.shape[1])[profiencies_mean > threshold])
-    b = [np.sum(efh, axis=1) == 0]  # get the rows where the efh is never reached
-    pred_skills[b] = profiencies.shape[1] # replace by maximum efh
+    mean_skill = np.mean(forecast_skill, axis=0)
+    mean_fhs = np.array([i < threshold for i in mean_skill])
+    return mean_fhs, None, None
 
-    if ps:
-        return pred_skills
-    else:
-        return efh, pred_skills#, mean_pred_skill
+def forecastskill_mean(forecast_skill, threshold):
+
+    fhs = np.array([i < threshold for i in forecast_skill])
+    fhs_mean = np.mean(fhs.astype(int), axis=0)  # for plotting
+    fhs_var = np.std(fhs.astype(int), axis=0)
+    return fhs_mean, fhs_var, fhs
+
 
 # Quantile Horizon
 def efh_quantile(metric, accepted_error, actual_error, timesteps, quantiles = (0.01, 0.99), ps = False):

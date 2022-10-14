@@ -1,6 +1,6 @@
 import numpy as np
 from abc import ABC, abstractmethod
-import matplotlib.pyplot as plt
+import horizons
 import metrics
 import references
 
@@ -124,15 +124,10 @@ class PredictionEnsemble(ForecastEnsemble):
             self.reference_simulation = reference_n
             self.forecast_skill = self.metric_fun(reference_n, self.ensemble_predictions)
 
-    def horizon(self, threshold, type="mean_skill"):
+    def horizon(self, fh_type, threshold = None):
 
-        mean_skill = np.mean(self.forecast_skill, axis=0)
+        if not threshold is None:
 
-        if type == "mean_skill":
-            fhs = np.array([i < threshold for i in mean_skill])
-            return fhs
-        else:
-            fhs = np.array([i < threshold for i in self.forecast_skill])
-            fhs_mean = np.mean(fhs.astype(int), axis=0)
-            self.fhs = fhs # for plotting
-            return fhs_mean
+            horizon_fun = getattr(horizons, fh_type)
+            fh_expectation, fh_dispersion, self.fh_matrix = horizon_fun(self.forecast_skill, threshold)
+            return fh_expectation, fh_dispersion

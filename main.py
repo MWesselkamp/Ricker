@@ -87,56 +87,12 @@ vizualisations.baseplot(prediction_ensemble.forecast_skill, transpose=True,
                         ylab="rolling_corrs")
 
 
-mean_skill_horizon = prediction_ensemble.horizon(threshold=1)
-prob_of_exceeding_threshold = prediction_ensemble.horizon(threshold=1, type="skill")
-vizualisations.baseplot(prob_of_exceeding_threshold)
+expectation_fsh, dispersion_fsh = prediction_ensemble.horizon(fh_type = "mean_forecastskill", threshold=1)
+# rather: Probability of exceeding threshold
+expectation_fsh, dispersion_fsh = prediction_ensemble.horizon(fh_type="forecastskill_mean", threshold=1)
 
+vizualisations.baseplot(expectation_fsh, expectation_fsh+dispersion_fsh, expectation_fsh+dispersion_fsh)
 
-
-#==================#
-# Quantile horizon #
-#==================#
-
-# 1. Correlation
-potential_fh = np.argmax(ehfs_mcorrs_m, axis=1)
-print(potential_fh)
-potential_fh = dict(zip(threshold_seq, window[potential_fh]))
-print("Potential FH along varying proficiency thresholds: ", potential_fh)
-
-efh_corrs, efh_corrs_min  = horizons.efh_quantile('cor', 0.5, corrs, corrs.shape[1])
-efh_corrs2, efh_corrs2_min = horizons.efh_quantile('cor', 0.5, corrs, corrs.shape[1], quantiles=(0.45, 0.55))
-fig = plt.figure()
-plt.plot(efh_corrs)
-plt.plot(efh_corrs2)
-fig.show()
-
-# For varying threshold
-qs = utils.create_quantiles(20, max = 0.49)
-efh_corrs_ps = np.array([horizons.efh_quantile('cor', j, corrs, corrs.shape[1], ps=True, quantiles=qs[q,:]) for j in threshold_seq for q in range(len(qs))])
-efh_corrs_ps = efh_corrs_ps.reshape(20,20)
-vizualisations.plot_quantile_efh('corr', efh_corrs_ps, threshold_seq, title="Correlation")
-
-# 2. Absolute differences
-
-efh_abs_diff, efh_abs_diff_min = horizons.efh_quantile('abs_diff', initial_uncertainty, abs_diff, its)
-fig = plt.figure()
-plt.plot(efh_abs_diff)
-fig.show()
-# For varying threshold
-efh_abs_diff_ps = np.array([horizons.efh_quantile('abs_diff', i, abs_diff, its, ps=True, quantiles=qs[q,:]) for i in threshold_seq for q in range(len(qs))])
-efh_abs_diff_ps = efh_abs_diff_ps.reshape(20,20)
-fig = plt.figure()
-ax = fig.add_subplot()
-vizualisations.plot_quantile_efh('absdiff', efh_corrs_ps, threshold_seq, title="Absolute differences")
-
-# 2. Mean squared error
-
-threshold_seq = np.linspace(initial_uncertainty, 1.5, 20)
-efh_mse_rolling, efh_mse_rolling_min = horizons.efh_quantile('mse', initial_uncertainty, mse_rolling, its)
-# For varying threshold
-efh_mse_ps  = np.array([horizons.efh_quantile('mse', i, mse_rolling, its, ps=True, quantiles=qs[q,:]) for i in threshold_seq for q in range(len(qs))])
-efh_mse_ps = efh_mse_ps.reshape(20,20)
-vizualisations.plot_quantile_efh('mse', efh_mse_ps, threshold_seq, title="MSE", label="Mean optimal FH")
 
 #===============#
 # t-test horizon#
@@ -242,7 +198,7 @@ plt.plot(np.transpose(perfect_ensemble_derivative_d), color="lightgrey")
 fig.show()
 
 #================================================================#
-# Forecast horizon based on  Spring & Ilyina 2018 / Goddard 2013 #
+# Forecast horizon Spring & Ilyina 2018 / Goddard 2013 #
 #================================================================#
 
 # Required: Bootstrap perfect ensemble function:
@@ -253,18 +209,5 @@ fig.show()
 #    rest = np.delete(perfect_ensemble_d, i, 0) # assign the rest
 
 #=================================================#
-# Forecast horizon follwoing Séférian et al 2018 #
+# Forecast horizon  Séférian et al 2018 #
 #=================================================#
-
-#==============================#
-# Fit model with Least squares #
-#==============================#
-
-x_train = ts_true[:train_size]
-x_test = ts_true[test_index:]
-
-# Historic mean
-historic_mean, historic_var = utils.historic_mean(x_test, x_train)
-
-lsqfit = modelclass.lsq_fit(ricker, x_train) # Changes theta in model object! Find other solution.
-# lsq fit standard errors on estimates?
