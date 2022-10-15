@@ -71,6 +71,10 @@ class PerfectEnsemble(ForecastEnsemble):
 
     def skill(self):
 
+        return self.accuracy_model/self.accuracy_reference
+
+    def skill_old(self):
+
         if self.meta['evaluation_style'] == "single":
 
             control, ensemble_n, emsemble_index = self.sample_ensemble_member()
@@ -114,8 +118,14 @@ class PredictionEnsemble(ForecastEnsemble):
 
             self.accuracy_model = self.metric_fun(self.observations, self.ensemble_predictions)
             self.accuracy_reference = self.metric_fun(self.observations, reference_n)
+            self.reference_simulation = reference_n
 
     def skill(self):
+
+        self.forecast_skill = self.accuracy_model/self.accuracy_reference
+        return self.forecast_skill
+
+    def skill_old(self):
 
         if self.meta['evaluation_style'] == "single":
 

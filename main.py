@@ -3,7 +3,6 @@ import simulations
 import utils
 import vizualisations
 import forecast_ensemble
-import horizons
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -13,17 +12,17 @@ import matplotlib.pyplot as plt
 sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="exogeneous")
-sims.hyper_parameters(simulated_years=4,
+sims.hyper_parameters(simulated_years=1,
                            ensemble_size=30,
-                           initial_size=20)
+                           initial_size=950)
 xsim = sims.simulate()
 mod = sims.ricker
 xsim_derivative = mod.derive_model()
 
 perfect_ensemble = forecast_ensemble.PerfectEnsemble(ensemble_predictions=xsim,
                                                      reference="rolling_historic_mean")
-perfect_ensemble.verification_settings(metric = "rolling_rmse",
-                                       evaluation_style="single")
+perfect_ensemble.verification_settings(metric = "rolling_rsquared",
+                                       evaluation_style="bootstrap")
 perfect_ensemble.accuracy()
 
 if perfect_ensemble.meta['evaluation_style'] == "single":
@@ -33,8 +32,9 @@ if perfect_ensemble.meta['evaluation_style'] == "single":
 elif perfect_ensemble.meta['evaluation_style'] == "bootstrap":
     vizualisations.baseplot(np.mean(perfect_ensemble.accuracy_model, axis=0), np.mean(perfect_ensemble.accuracy_reference,axis=0), transpose=True)
 
-perfect_ensemble.skill()
-vizualisations.baseplot(perfect_ensemble.forecast_skill, transpose=True)
+forecast_skill = perfect_ensemble.skill()
+x = np.mean(forecast_skill, axis=0)
+vizualisations.baseplot(x, transpose=True)
 
 #============================================================#
 # What do you want do want to validate the forecast against? #
@@ -46,23 +46,23 @@ vizualisations.baseplot(perfect_ensemble.forecast_skill, transpose=True)
 obs = simulations.Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
                              environment="exogeneous")
-obs.hyper_parameters(simulated_years=4,
+obs.hyper_parameters(simulated_years=1,
                            ensemble_size=1,
-                           initial_size=(20, 20))
+                           initial_size=(950, 950))
 xobs = obs.simulate()[:,:,0]
 dell_0 = abs(xsim[:,0]-xobs[:,0])
 
 prediction_ensemble = forecast_ensemble.PredictionEnsemble(ensemble_predictions=xsim,
                                                            observations=xobs,
                                                             reference="rolling_historic_mean")
-prediction_ensemble.verification_settings(metric = "rolling_corrs",
+prediction_ensemble.verification_settings(metric = "rolling_rsquared",
                                        evaluation_style="single")
 prediction_ensemble.accuracy()
 vizualisations.baseplot(prediction_ensemble.accuracy_model,prediction_ensemble.accuracy_reference, transpose=True)
 
-prediction_ensemble.skill()
-vizualisations.baseplot(prediction_ensemble.forecast_skill, transpose=True,
-                        ylab="rolling_corrs")
+forecast_skill = prediction_ensemble.skill()
+vizualisations.baseplot(forecast_skill, transpose=True,
+                        ylab="rolling_rsquared")
 
 #===================#
 # Now with forecast #
@@ -75,16 +75,17 @@ vizualisations.baseplot(xpred, transpose=True)
 prediction_ensemble = forecast_ensemble.PredictionEnsemble(ensemble_predictions=xpred,
                                                            observations=xobs,
                                                             reference="persistance")
-prediction_ensemble.verification_settings(metric = "absolute_differences",
+prediction_ensemble.verification_settings(metric = "rolling_rsquared",
                                        evaluation_style="single")
 
-prediction_ensemble.skill()
+prediction_ensemble.accuracy()
+forecast_skill = prediction_ensemble.skill()
 
 v_ref = prediction_ensemble.reference_simulation
 vizualisations.baseplot(xpred, v_ref, transpose=True,
                         ylab="Population size")
-vizualisations.baseplot(prediction_ensemble.forecast_skill, transpose=True,
-                        ylab="rolling_corrs")
+vizualisations.baseplot(forecast_skill, transpose=True,
+                        ylab="Skill: rolling_rsquared")
 
 
 expectation_fsh, dispersion_fsh = prediction_ensemble.horizon(fh_type = "mean_forecastskill", threshold=1)

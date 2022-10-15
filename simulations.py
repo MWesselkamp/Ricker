@@ -109,4 +109,6 @@ class Simulator:
         self.hp['initial_size'] = analysis_distribution
         self.hp['iterations'] = years*52
 
-        self.forecast_simulation = self.ricker.simulate(self.hp, ex=self.T)
+        T_pred = utils.simulate_T(self.hp['iterations'], add_trend=False, add_noise=True, show=False)
+
+        self.forecast_simulation = self.ricker.simulate(self.hp, ex=T_pred)

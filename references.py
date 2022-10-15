@@ -22,6 +22,10 @@ def historic_mean(observations, predictions = None):
     hvar = np.std(observations)#, axis=0)
     return np.full(sh, hmean)
 
+def diurnal_historic_mean(observations, predictions = None):
+
+    pass
+
 def persistance(observations, predictions = None):
 
     if not predictions is None:
