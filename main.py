@@ -17,7 +17,7 @@ sims.hyper_parameters(simulated_years=1,
                            initial_size=950)
 xsim = sims.simulate()
 mod = sims.ricker
-xsim_derivative = mod.derive_model()
+xsim_derivative = mod.derive(xsim)
 
 perfect_ensemble = forecast_ensemble.PerfectEnsemble(ensemble_predictions=xsim,
                                                      reference="rolling_historic_mean")

@@ -16,14 +16,16 @@ sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="exogeneous")
 # Set hyperparameters. We'll simulate on a weekly resolution. Years is changed to weeks.
-sims.hyper_parameters(simulated_years=10,
+sims.hyper_parameters(simulated_years=2,
                            ensemble_size=10,
-                           initial_size=(100)) # here we have to give init for both populations
-x_true = sims.simulate()
+                           initial_size=(950)) # here we have to give init for both populations
+x_true = sims.simulate(pars={'theta': None,'sigma': 0.01,'phi': 0.5,'initial_uncertainty': 1e-1})
 mod = sims.ricker
-derivative = mod.derive_model()
+derivative = mod.derive(x_true)
+
 
 # create simulator object
+import simulations
 sims = simulations.Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous")
@@ -31,7 +33,8 @@ sims = simulations.Simulator(model_type="multi-species",
 sims.hyper_parameters(simulated_years=100,
                            ensemble_size=30,
                            initial_size=(100, 100)) # here we have to give init for both populations
-x_true = sims.simulate()
+x_true = sims.simulate(pars={'theta': None,'sigma': 0.01,'phi': 0.5,'initial_uncertainty': 1e-1})
+
 
 # create simulator object
 import simulations
@@ -45,4 +48,4 @@ sims.hyper_parameters(simulated_years=2,
                            initial_size=(100)) # here we have to give init for both populations
 x = sims.simulate()
 mod = sims.ricker
-derivative = mod.derive_model()
+derivative = mod.derive(x)

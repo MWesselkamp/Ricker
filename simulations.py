@@ -5,26 +5,20 @@ import utils
 class Simulator:
 
     def __init__(self, model_type, simulation_regime, environment,
-                 uncertainties = {"parameters":False, "initial":True,"process":True},
                  set_seed = False):
-
-        self.uncertainties = uncertainties
 
         self.set_seed = set_seed
         self.meta = {'model_type': model_type,
                      'regime': simulation_regime,
                      'environment': environment,
                      'hyper_parameters':None,
-                     'uncertainty_parameters': None}
+                     'model_parameters': None}
 
         print("SIMULATION UNDER THE FOLLOWING CONDITIONS:")
         print("Type of Ricker Model that will be used:   ", self.meta['model_type'])
         print("Simulation from Ricker in the following regime:  ", self.meta['regime'])
         print("Exogeneous impact on state variable considered?   ", self.meta['environment'])
-        print("UNCERTAINTIES CONSIDERED:")
-        print("Consider parameter uncertainty:      ", uncertainties['parameters'])
-        print("Consider initial condition uncertainty:      ", uncertainties['initial'])
-        print("Consider process uncertainty, i.e. NOT deterministic:    ", uncertainties['process'])
+
 
     def hyper_parameters(self,simulated_years,ensemble_size,initial_size):
 
@@ -32,7 +26,7 @@ class Simulator:
                    "ensemble_size": ensemble_size}
         self.meta['hp'] = self.hp
 
-    def simulation_setup(self, sigma = 0.5, initial_uncertainty=1e-1, pars = None):
+    def simulation_setup(self, sigma, phi, initial_uncertainty, theta):
 
         if self.meta['environment'] == "exogeneous":
             self.T = utils.simulate_T(self.hp['iterations'], add_trend=False, add_noise=True, show=False)
@@ -45,53 +39,61 @@ class Simulator:
             lam = 0.005
 
         if (self.meta['model_type'] == "single-species") & (self.meta['environment']  == "non-exogeneous"):
-            self.ricker = models.Ricker_Single(self.uncertainties, self.set_seed)
-            theta = {'lambda': lam, 'alpha': 1 / 1000, 'sigma': 1}
+            self.ricker = models.Ricker_Single(self.set_seed)
+            theta = {'lambda': lam, 'alpha': 1 / 1000}
 
 
         if (self.meta['model_type'] == "multi-species") & (self.meta['environment'] == "non-exogeneous"):
-            self.ricker = models.Ricker_Multi(self.uncertainties, self.set_seed)
+            self.ricker = models.Ricker_Multi(self.set_seed)
             theta = {'lambda_a': lam, 'alpha':1/2000, 'beta':1/1950,
                     'lambda_b': lam, 'gamma': 1/2000, 'delta':1/1955}
 
 
         if (self.meta['model_type'] == "single-species") & (self.meta['environment'] == "exogeneous"):
-            self.ricker = models.Ricker_Single_T(self.uncertainties, self.set_seed)
+            self.ricker = models.Ricker_Single_T(self.set_seed)
             theta = { 'alpha': 1 / 1000, 'ax': lam, 'bx': .08, 'cx': .05}
 
 
         if (self.meta['model_type'] == "multi-species") & (self.meta['environment'] == "exogeneous"):
-            self.ricker = models.Ricker_Multi_T(self.uncertainties, self.set_seed)
+            self.ricker = models.Ricker_Multi_T(self.set_seed)
             theta = {'alpha':1/2000, 'beta':1/1950,
                     'gamma': 1/2000, 'delta':1/1955,
                     'ax': lam, 'bx': 0.08, 'cx': 0.05,
                     'ay': lam, 'by': 0.08, 'cy':0.05}
 
 
-        self.meta['uncertainty_parameters'] = {'theta':theta,
-                                               'sigma':sigma,
-                                               'initial_uncertainty':initial_uncertainty,
-                                               'pars':pars}
-        self.ricker.uncertainty_properties(theta, sigma, initial_uncertainty)
+        self.meta['model_parameters']['theta'] = {'theta':theta}
+        self.ricker.uncertainties(theta, sigma,phi, initial_uncertainty)
 
-    def simulate(self, pars = "default", structured_samples = False):
+    def simulate(self, pars = None):
 
         """
         A convenience function. Alternatively, extract ricker from simulation object and simulate.
         :param structured_samples:
         :return:
         """
-        self.simulation_setup()
 
-        if pars == "default":
-
-            simu = self.ricker.simulate(self.hp, ex=self.T)
-            x = simu["ts"]
+        if pars is None:
+            self.meta['model_parameters'] = {'theta': None,
+                                            'sigma': 0,
+                                            'phi': 0.5,
+                                            'initial_uncertainty': 1e-1}
 
         elif pars == "structured":
-
             pass
 
+        else:
+            self.meta['model_parameters'] = pars
+
+        self.simulation_setup(sigma=self.meta['model_parameters']['sigma'],
+                              phi=self.meta['model_parameters']['phi'],
+                              initial_uncertainty=self.meta['model_parameters']['initial_uncertainty'],
+                              theta=self.meta['model_parameters']['theta'])
+
+        simu = self.ricker.simulate(self.hp, ex=self.T)
+        x = simu["ts"]
+
+        # For visualizing on the fly
         if self.meta['model_type'] == "single-species":
             self.ricker.visualise(np.transpose(x))
         else:
