@@ -45,8 +45,8 @@ class Simulator:
 
         if (self.meta['model_type'] == "multi-species") & (self.meta['environment'] == "non-exogeneous"):
             self.ricker = models.Ricker_Multi(self.set_seed)
-            theta = {'lambda_a': lam, 'alpha':1/2000, 'beta':1/1950,
-                    'lambda_b': lam, 'gamma': 1/2000, 'delta':1/1955}
+            theta = {'lambda_a': lam+0.0001, 'alpha':1/2000, 'beta':1/2000,
+                    'lambda_b': lam, 'gamma': 1/2000, 'delta':1/2001}
 
 
         if (self.meta['model_type'] == "single-species") & (self.meta['environment'] == "exogeneous"):
@@ -75,9 +75,9 @@ class Simulator:
 
         if pars is None:
             self.meta['model_parameters'] = {'theta': None,
-                                            'sigma': 0,
-                                            'phi': 0.5,
-                                            'initial_uncertainty': 1e-1}
+                                            'sigma': 0.1,
+                                            'phi': 0.2,
+                                            'initial_uncertainty': 1e-2}
 
         elif pars == "structured":
             pass

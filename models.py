@@ -134,6 +134,8 @@ class Model(ABC):
                 N = torch.tensor(N, requires_grad=True)  # set requires_grad = True for computing the gradient
                 if not self.ex is None:
                     dN = grad(self.model_torch(N, self.ex[i]), N)
+                else:
+                    dN = grad(self.model_torch(N, self.ex), N)
                 df_dN_i.append(torch.tensor(dN))  # turn tuple into tensor
             df_dN.append(torch.cat(df_dN_i).detach().numpy())
         df_dN = np.array(df_dN)

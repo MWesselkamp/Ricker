@@ -11,13 +11,14 @@ import matplotlib.pyplot as plt
 #==========================================#
 sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
-                             environment="exogeneous")
-sims.hyper_parameters(simulated_years=1,
-                           ensemble_size=30,
-                           initial_size=950)
+                             environment="non-exogeneous")
+sims.hyper_parameters(simulated_years=100,
+                           ensemble_size=10,
+                           initial_size=1000)
 xsim = sims.simulate()
 mod = sims.ricker
 xsim_derivative = mod.derive(xsim)
+vizualisations.baseplot(xsim_derivative, transpose=True)
 
 perfect_ensemble = forecast_ensemble.PerfectEnsemble(ensemble_predictions=xsim,
                                                      reference="rolling_historic_mean")
@@ -45,10 +46,10 @@ vizualisations.baseplot(x, transpose=True)
 
 obs = simulations.Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
-                             environment="exogeneous")
-obs.hyper_parameters(simulated_years=1,
+                             environment="non-exogeneous")
+obs.hyper_parameters(simulated_years=100,
                            ensemble_size=1,
-                           initial_size=(950, 950))
+                           initial_size=(1000, 1000))
 xobs = obs.simulate()[:,:,0]
 dell_0 = abs(xsim[:,0]-xobs[:,0])
 
