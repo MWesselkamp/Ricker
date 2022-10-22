@@ -171,13 +171,13 @@ class Ricker_Single(Model):
         With or without stochasticity (Woods 2010).
         :param N: Population size at time step t.
         """
-        return N * np.exp(self.theta['lambda']*(1- self.theta['alpha'] * N)) + self.sigma*self.num.normal(0,1)
+        return N * np.exp(self.theta['lambda']*(1- N/self.theta['K'])) + self.sigma*self.num.normal(0,1)
 
     def model_torch(self, N, ex = None):
         """
         Add numerical derivative.
         """
-        return N * torch.exp(self.theta['lambda']*(1- self.theta['alpha'] * N)) + self.sigma*self.num.normal(0,1)
+        return N * torch.exp(self.theta['lambda']*(1- N/self.theta['K'])) + self.sigma*self.num.normal(0,1)
 
 
 
@@ -191,15 +191,15 @@ class Ricker_Single_T(Model):
 
     def model(self, N, T):
 
-        lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T**2 + self.sigma*self.num.normal(0,1)
+        lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T**2
 
-        return N * np.exp(lambda_a*(1 - self.theta['alpha'] * N))
+        return N * np.exp(lambda_a*(1 - N/self.theta['K'])) + self.sigma*self.num.normal(0,1)
 
     def model_torch(self, N, T):
 
-        lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T ** 2 + self.sigma*self.num.normal(0,1)
+        lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T ** 2
 
-        return N * torch.exp(lambda_a * (1 - self.theta['alpha'] * N))
+        return N * torch.exp(lambda_a * (1 - N/self.theta['K'])) + self.sigma*self.num.normal(0,1)
 
 
 class Ricker_Multi(Model):
@@ -209,11 +209,13 @@ class Ricker_Multi(Model):
         super(Ricker_Multi, self).__init__(set_seed)
 
     def model(self, N, ex = None, fit = False):
-
+        """
+        Based on: May, R.M. Biological populations with non-overlapping generations: Stable points, stable cycles, and chaos. 1974
+        """
         N_x, N_y = N[0], N[1]
 
-        N_x_new =  N_x * np.exp(self.theta['lambda_a']*(1 - self.theta['alpha']*N_x - self.theta['beta']*N_y)) + self.sigma*self.num.normal(0,1)
-        N_y_new = N_y * np.exp(self.theta['lambda_b']*(1 - self.theta['gamma']*N_y - self.theta['delta']*N_x)) + self.sigma*self.num.normal(0,1)
+        N_x_new =  N_x * np.exp(self.theta['lambda1']*(self.theta['K1'] - self.theta['alpha']*N_x - self.theta['beta']*N_y)/self.theta['K1']) + self.sigma*self.num.normal(0,1)
+        N_y_new = N_y * np.exp(self.theta['lambda2']*(self.theta['K2'] - self.theta['gamma']*N_x - self.theta['delta']*N_y)/self.theta['K2']) + self.sigma*self.num.normal(0,1)
 
         if fit:
             return N_x_new
@@ -224,8 +226,8 @@ class Ricker_Multi(Model):
 
         N_x, N_y = N[0], N[1]
 
-        N_x_new = N_x * torch.exp(self.theta['lambda_a'] * (1 - self.theta['alpha'] * N_x - self.theta['beta'] * N_y)) + self.sigma*self.num.normal(0,1)
-        N_y_new = N_y * torch.exp(self.theta['lambda_b'] * (1 - self.theta['gamma'] * N_y - self.theta['delta'] * N_x)) + self.sigma*self.num.normal(0,1)
+        N_x_new = N_x * torch.exp(self.theta['lambda1'] * (self.theta['K1'] - self.theta['alpha'] * N_x - self.theta['beta'] * N_y)/self.theta['K1']) + self.sigma*self.num.normal(0,1)
+        N_y_new = N_y * torch.exp(self.theta['lambda2'] * (self.theta['K2'] - self.theta['gamma'] * N_x - self.theta['delta'] * N_y)/self.theta['K2']) + self.sigma*self.num.normal(0,1)
 
         return (N_x_new, N_y_new)
 
@@ -245,8 +247,8 @@ class Ricker_Multi_T(Model):
         lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T**2
         lambda_b = self.theta['ay'] + self.theta['by'] * T + self.theta['cy'] * T**2
 
-        N_x_new =  N_x * np.exp(lambda_a*(1- self.theta['alpha']*N_x - self.theta['beta']*N_y)) + self.sigma*self.num.normal(0,1)
-        N_y_new = N_y * np.exp(lambda_b*(1 - self.theta['gamma']*N_y - self.theta['delta']*N_x)) + self.sigma*self.num.normal(0,1)
+        N_x_new =  N_x * np.exp(lambda_a*(self.theta['K1']- self.theta['alpha']*N_x - self.theta['beta']*N_y)/self.theta['K1']) + self.sigma*self.num.normal(0,1)
+        N_y_new = N_y * np.exp(lambda_b*(self.theta['K2'] - self.theta['gamma']*N_x - self.theta['delta']*N_y)/self.theta['K2']) + self.sigma*self.num.normal(0,1)
 
         if fit:
             return N_x_new
@@ -260,8 +262,8 @@ class Ricker_Multi_T(Model):
         lambda_a = self.theta['ax'] + self.theta['bx'] * T + self.theta['cx'] * T**2
         lambda_b = self.theta['ay'] + self.theta['by'] * T + self.theta['cy'] * T**2
 
-        N_x_new =  N_x * torch.exp(lambda_a*(1- self.theta['alpha']*N_x - self.theta['beta']*N_y)) + self.sigma*self.num.normal(0,1)
-        N_y_new = N_y * torch.exp(lambda_b*(1 - self.theta['gamma']*N_y - self.theta['delta']*N_x)) + self.sigma*self.num.normal(0,1)
+        N_x_new =  N_x * torch.exp(lambda_a*(self.theta['K1'] - self.theta['alpha']*N_x - self.theta['beta']*N_y)/self.theta['K1']) + self.sigma*self.num.normal(0,1)
+        N_y_new = N_y * torch.exp(lambda_b*(self.theta['K2'] - self.theta['gamma']*N_x - self.theta['delta']*N_y)/self.theta['K2']) + self.sigma*self.num.normal(0,1)
 
         return (N_x_new, N_y_new)
 

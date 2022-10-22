@@ -12,30 +12,36 @@ import matplotlib.pyplot as plt
 sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous")
-sims.hyper_parameters(simulated_years=100,
+sims.hyper_parameters(simulated_years=10,
                            ensemble_size=10,
-                           initial_size=1000)
+                           initial_size=0.99)
 xsim = sims.simulate()
 mod = sims.ricker
 xsim_derivative = mod.derive(xsim)
 vizualisations.baseplot(xsim_derivative, transpose=True)
 
 perfect_ensemble = forecast_ensemble.PerfectEnsemble(ensemble_predictions=xsim,
-                                                     reference="rolling_historic_mean")
-perfect_ensemble.verification_settings(metric = "rolling_rsquared",
+                                                     reference="rolling_climatology")
+perfect_ensemble.verification_settings(metric = "rolling_rmse",
                                        evaluation_style="bootstrap")
 perfect_ensemble.accuracy()
+
+
 
 if perfect_ensemble.meta['evaluation_style'] == "single":
     control = xsim[perfect_ensemble.meta['other']['ensemble_index']]
     vizualisations.baseplot(xsim, control, transpose=True)
-    vizualisations.baseplot(perfect_ensemble.accuracy_model, perfect_ensemble.accuracy_reference, transpose=True)
+    vizualisations.baseplot(perfect_ensemble.accuracy_model, perfect_ensemble.accuracy_reference,
+                            transpose=True, ylab=perfect_ensemble.meta['metric'])
 elif perfect_ensemble.meta['evaluation_style'] == "bootstrap":
-    vizualisations.baseplot(np.mean(perfect_ensemble.accuracy_model, axis=0), np.mean(perfect_ensemble.accuracy_reference,axis=0), transpose=True)
+    vizualisations.baseplot(xsim, np.array(perfect_ensemble.reference_simulation).squeeze(), transpose=True)
+    vizualisations.baseplot(np.mean(perfect_ensemble.accuracy_model, axis=0), np.mean(perfect_ensemble.accuracy_reference,axis=0),
+                            transpose=True, ylab=perfect_ensemble.meta['metric'])
 
 forecast_skill = perfect_ensemble.skill()
 x = np.mean(forecast_skill, axis=0)
-vizualisations.baseplot(x, transpose=True)
+vizualisations.baseplot(x, transpose=True,
+                        ylab=f"Relative {perfect_ensemble.meta['metric']}")
 
 #============================================================#
 # What do you want do want to validate the forecast against? #
@@ -47,23 +53,24 @@ vizualisations.baseplot(x, transpose=True)
 obs = simulations.Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous")
-obs.hyper_parameters(simulated_years=100,
+obs.hyper_parameters(simulated_years=10,
                            ensemble_size=1,
-                           initial_size=(1000, 1000))
+                           initial_size=(0.99, 0.99))
 xobs = obs.simulate()[:,:,0]
 dell_0 = abs(xsim[:,0]-xobs[:,0])
 
 prediction_ensemble = forecast_ensemble.PredictionEnsemble(ensemble_predictions=xsim,
                                                            observations=xobs,
-                                                            reference="rolling_historic_mean")
-prediction_ensemble.verification_settings(metric = "rolling_rsquared",
+                                                            reference="rolling_climatology")
+prediction_ensemble.verification_settings(metric = "rolling_rmse",
                                        evaluation_style="single")
 prediction_ensemble.accuracy()
-vizualisations.baseplot(prediction_ensemble.accuracy_model,prediction_ensemble.accuracy_reference, transpose=True)
+vizualisations.baseplot(prediction_ensemble.accuracy_model,prediction_ensemble.accuracy_reference,
+                        transpose=True, ylab = prediction_ensemble.meta['metric'])
 
 forecast_skill = prediction_ensemble.skill()
 vizualisations.baseplot(forecast_skill, transpose=True,
-                        ylab="rolling_rsquared")
+                        ylab=f"relative {prediction_ensemble.meta['metric']}")
 
 #===================#
 # Now with forecast #
@@ -75,18 +82,17 @@ vizualisations.baseplot(xpred, transpose=True)
 
 prediction_ensemble = forecast_ensemble.PredictionEnsemble(ensemble_predictions=xpred,
                                                            observations=xobs,
-                                                            reference="persistance")
-prediction_ensemble.verification_settings(metric = "rolling_rsquared",
+                                                            reference="climatology")
+prediction_ensemble.verification_settings(metric = "rolling_rmse",
                                        evaluation_style="single")
 
-prediction_ensemble.accuracy()
-forecast_skill = prediction_ensemble.skill()
+prediction_ensemble.forecast_accuracy()
 
-v_ref = prediction_ensemble.reference_simulation
+v_ref = prediction_ensemble.reference_n
 vizualisations.baseplot(xpred, v_ref, transpose=True,
                         ylab="Population size")
-vizualisations.baseplot(forecast_skill, transpose=True,
-                        ylab="Skill: rolling_rsquared")
+vizualisations.baseplot(prediction_ensemble.forecast_accuracy, transpose=True,
+                        ylab=f"{prediction_ensemble.meta['metric']}")
 
 
 expectation_fsh, dispersion_fsh = prediction_ensemble.horizon(fh_type = "mean_forecastskill", threshold=1)

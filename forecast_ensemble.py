@@ -16,6 +16,13 @@ class ForecastEnsemble(ABC):
                      'other': {'ensemble_index':None} }
 
     def verification_settings(self, metric, evaluation_style):
+        """
+
+        :param metric: options -
+        accuracy: "rolling_rsquared", "rolling_mse", "rolling_rmse", "absolute_differences"
+        association: "rolling_corrs"
+        bias: "rolling_bias"
+        """
 
         self.metric_fun = getattr(metrics, metric)
         self.meta['evaluation_style'] = evaluation_style
@@ -73,34 +80,7 @@ class PerfectEnsemble(ForecastEnsemble):
 
         return self.accuracy_model/self.accuracy_reference
 
-    def skill_old(self):
 
-        if self.meta['evaluation_style'] == "single":
-
-            control, ensemble_n, emsemble_index = self.sample_ensemble_member()
-
-            reference_simulation = self.reference_model(control)
-
-            self.forecast_skill = self.metric_fun(reference_simulation, ensemble_n)
-
-        elif self.meta['evaluation_style'] == "bootstrap":
-
-            bs = 100
-            forecast_skill = []
-            reference_simulation = []
-
-            for i in range(bs):
-
-                control, ensemble_n, emsemble_index = self.sample_ensemble_member()
-
-                reference_n = self.reference_model(control)
-
-                reference_simulation.append(reference_n)
-                forecast_skill.append(self.metric_fun(reference_n, ensemble_n))
-
-            self.forecast_skill = np.array(forecast_skill)
-
-        self.reference_simulation = reference_simulation
 
 class PredictionEnsemble(ForecastEnsemble):
 
@@ -125,19 +105,19 @@ class PredictionEnsemble(ForecastEnsemble):
         self.forecast_skill = self.accuracy_model/self.accuracy_reference
         return self.forecast_skill
 
-    def skill_old(self):
+    def forecast_accuracy(self):
 
         if self.meta['evaluation_style'] == "single":
 
             reference_n = self.reference_model(self.observations, self.ensemble_predictions)
+            self.reference_n =reference_n
 
-            self.reference_simulation = reference_n
-            self.forecast_skill = self.metric_fun(reference_n, self.ensemble_predictions)
+            self.forecast_accuracy = self.metric_fun(reference_n, self.ensemble_predictions)
 
     def horizon(self, fh_type, threshold = None):
 
         if not threshold is None:
 
             horizon_fun = getattr(horizons, fh_type)
-            fh_expectation, fh_dispersion, self.fh_matrix = horizon_fun(self.forecast_skill, threshold)
+            fh_expectation, fh_dispersion, self.fh_matrix = horizon_fun(self.forecast_accuracy, threshold)
             return fh_expectation, fh_dispersion

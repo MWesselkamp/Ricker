@@ -40,26 +40,26 @@ class Simulator:
 
         if (self.meta['model_type'] == "single-species") & (self.meta['environment']  == "non-exogeneous"):
             self.ricker = models.Ricker_Single(self.set_seed)
-            theta = {'lambda': lam, 'alpha': 1 / 1000}
+            theta = {'lambda': lam, 'K': 1}
 
 
         if (self.meta['model_type'] == "multi-species") & (self.meta['environment'] == "non-exogeneous"):
             self.ricker = models.Ricker_Multi(self.set_seed)
-            theta = {'lambda_a': lam+0.0001, 'alpha':1/2000, 'beta':1/2000,
-                    'lambda_b': lam, 'gamma': 1/2000, 'delta':1/2001}
+            theta = {'lambda1': lam+0.0001, 'K1': 1, 'alpha':1, 'beta':0.00006,
+                    'lambda2': lam, 'K2': 1, 'gamma':1, 'delta':0.00005}
 
 
         if (self.meta['model_type'] == "single-species") & (self.meta['environment'] == "exogeneous"):
             self.ricker = models.Ricker_Single_T(self.set_seed)
-            theta = { 'alpha': 1 / 1000, 'ax': lam, 'bx': .08, 'cx': .05}
+            theta = { 'K': 1, 'ax': lam, 'bx': .02, 'cx': .05}
 
 
         if (self.meta['model_type'] == "multi-species") & (self.meta['environment'] == "exogeneous"):
             self.ricker = models.Ricker_Multi_T(self.set_seed)
-            theta = {'alpha':1/2000, 'beta':1/1950,
-                    'gamma': 1/2000, 'delta':1/1955,
-                    'ax': lam, 'bx': 0.08, 'cx': 0.05,
-                    'ay': lam, 'by': 0.08, 'cy':0.05}
+            theta = {'K1': 1, 'alpha':1, 'beta':0.00006,
+                    'K2':1, 'gamma': 1, 'delta':0.00005,
+                    'ax': lam+0.0001, 'bx': 0.02, 'cx': 0.05,
+                    'ay': lam, 'by': 0.02, 'cy':0.05}
 
 
         self.meta['model_parameters']['theta'] = {'theta':theta}
@@ -75,9 +75,9 @@ class Simulator:
 
         if pars is None:
             self.meta['model_parameters'] = {'theta': None,
-                                            'sigma': 0.1,
-                                            'phi': 0.2,
-                                            'initial_uncertainty': 1e-2}
+                                            'sigma': 0.00,
+                                            'phi': 0.0001,
+                                            'initial_uncertainty': 1e-5}
 
         elif pars == "structured":
             pass

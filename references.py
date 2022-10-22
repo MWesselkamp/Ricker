@@ -1,6 +1,6 @@
 import numpy as np
 
-def rolling_historic_mean(observations, predictions = None):
+def rolling_climatology(observations, predictions = None):
 
     hmean = np.zeros(observations.shape)
     hvar = np.zeros(observations.shape)
@@ -12,7 +12,7 @@ def rolling_historic_mean(observations, predictions = None):
 
     return hmean
 
-def historic_mean(observations, predictions = None):
+def climatology(observations, predictions = None):
 
     if not predictions is None:
         sh = predictions.shape
@@ -22,7 +22,7 @@ def historic_mean(observations, predictions = None):
     hvar = np.std(observations)#, axis=0)
     return np.full(sh, hmean)
 
-def diurnal_historic_mean(observations, predictions = None):
+def diurnal_climatology(observations, predictions = None):
 
     pass
 
