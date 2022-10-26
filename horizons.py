@@ -3,12 +3,12 @@ import numpy as np
 def mean_forecastskill(forecast_skill, threshold):
 
     mean_skill = np.mean(forecast_skill, axis=0)
-    mean_fhs = np.array([i < threshold for i in mean_skill])
+    mean_fhs = np.array([i > threshold for i in mean_skill])
     return mean_fhs, None, None
 
 def forecastskill_mean(forecast_skill, threshold):
 
-    fhs = np.array([i < threshold for i in forecast_skill])
+    fhs = np.array([i > threshold for i in forecast_skill])
     fhs_mean = np.mean(fhs.astype(int), axis=0)  # for plotting
     fhs_var = np.std(fhs.astype(int), axis=0)
     return fhs_mean, fhs_var, fhs

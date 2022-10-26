@@ -89,6 +89,20 @@ def mse(reference, ensemble):
     mse = np.mean(np.subtract(reference, ensemble)**2, axis=0)
     return mse
 
+def raw_CNR(obs, pred, squared = False):
+    """
+    CNR - contrast to noise ratio: mean(condition-baseline) / std(baseline)
+    This is basically the same as the square-error-based SNR?
+    Transfered, we have the model as the baseline and the mean as condition.
+    tsnr increases with sample size (see sd).
+    """
+    signal = np.mean((pred - np.mean(obs))) # returns a scalar
+    noise = np.std(obs)
+    if squared:
+        return signal**2/noise**2, signal**2, noise**2
+    else:
+        return signal/noise, signal, noise
+
 def t_statistic(x_sample, H0):
     """
     Student's t-test. Two-sided.

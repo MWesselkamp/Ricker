@@ -4,7 +4,7 @@ import horizons
 import metrics
 import references
 
-class ForecastEnsemble(ABC):
+class EnsembleVerfication(ABC):
 
     def __init__(self, ensemble_predictions, reference):
 
@@ -28,7 +28,7 @@ class ForecastEnsemble(ABC):
         self.meta['evaluation_style'] = evaluation_style
         self.meta['metric'] = metric
 
-class PerfectEnsemble(ForecastEnsemble):
+class PerfectEnsemble(EnsembleVerfication):
 
     def __init__(self, ensemble_predictions, reference):
 
@@ -82,13 +82,13 @@ class PerfectEnsemble(ForecastEnsemble):
 
 
 
-class PredictionEnsemble(ForecastEnsemble):
+class ImperfectEnsemble(EnsembleVerfication):
 
     def __init__(self, ensemble_predictions, observations, reference):
 
         self.observations = observations
 
-        super(PredictionEnsemble, self).__init__(ensemble_predictions, reference)
+        super(ImperfectEnsemble, self).__init__(ensemble_predictions, reference)
 
     def accuracy(self):
 
@@ -105,14 +105,21 @@ class PredictionEnsemble(ForecastEnsemble):
         self.forecast_skill = self.accuracy_model/self.accuracy_reference
         return self.forecast_skill
 
+
+class ForecastEnsemble(EnsembleVerfication):
+
+    def __init__(self, ensemble_predictions, observations, reference):
+
+        self.observations = observations
+
+        super(ForecastEnsemble, self).__init__(ensemble_predictions, reference)
+
     def forecast_accuracy(self):
 
         if self.meta['evaluation_style'] == "single":
 
-            reference_n = self.reference_model(self.observations, self.ensemble_predictions)
-            self.reference_n =reference_n
-
-            self.forecast_accuracy = self.metric_fun(reference_n, self.ensemble_predictions)
+            self.reference_mean, self.reference_var = self.reference_model(self.observations, self.ensemble_predictions)
+            self.forecast_accuracy = self.metric_fun(self.reference_mean, self.ensemble_predictions)
 
     def horizon(self, fh_type, threshold = None):
 

@@ -14,13 +14,15 @@ def rolling_climatology(observations, predictions = None):
 
 def climatology(observations, predictions = None):
 
-    if not predictions is None:
-        sh = predictions.shape
-    else:
-        sh = observations.shape
     hmean = np.mean(observations) #, axis=0)
     hvar = np.std(observations)#, axis=0)
-    return np.full(sh, hmean)
+
+    if not predictions is None:
+        sh = predictions.shape
+        return np.full((1,sh[1]), hmean), np.full((1,sh[1]), hvar)
+    else:
+        sh = observations.shape
+        return np.full(sh, hmean)
 
 def diurnal_climatology(observations, predictions = None):
 

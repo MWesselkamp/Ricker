@@ -14,7 +14,7 @@ sims = simulations.Simulator(model_type="single-species",
                              environment="non-exogeneous")
 sims.hyper_parameters(simulated_years=10,
                            ensemble_size=10,
-                           initial_size=0.99)
+                           initial_size=1)
 xsim = sims.simulate()
 mod = sims.ricker
 xsim_derivative = mod.derive(xsim)
@@ -38,6 +38,7 @@ elif perfect_ensemble.meta['evaluation_style'] == "bootstrap":
     vizualisations.baseplot(np.mean(perfect_ensemble.accuracy_model, axis=0), np.mean(perfect_ensemble.accuracy_reference,axis=0),
                             transpose=True, ylab=perfect_ensemble.meta['metric'])
 
+
 forecast_skill = perfect_ensemble.skill()
 x = np.mean(forecast_skill, axis=0)
 vizualisations.baseplot(x, transpose=True,
@@ -55,32 +56,32 @@ obs = simulations.Simulator(model_type="multi-species",
                              environment="non-exogeneous")
 obs.hyper_parameters(simulated_years=10,
                            ensemble_size=1,
-                           initial_size=(0.99, 0.99))
+                           initial_size=(1, 1))
 xobs = obs.simulate()[:,:,0]
 dell_0 = abs(xsim[:,0]-xobs[:,0])
 
-prediction_ensemble = forecast_ensemble.PredictionEnsemble(ensemble_predictions=xsim,
+imperfect_ensemble = forecast_ensemble.ImperfectEnsemble(ensemble_predictions=xsim,
                                                            observations=xobs,
                                                             reference="rolling_climatology")
-prediction_ensemble.verification_settings(metric = "rolling_rmse",
+imperfect_ensemble.verification_settings(metric = "rolling_rmse",
                                        evaluation_style="single")
-prediction_ensemble.accuracy()
-vizualisations.baseplot(prediction_ensemble.accuracy_model,prediction_ensemble.accuracy_reference,
-                        transpose=True, ylab = prediction_ensemble.meta['metric'])
+imperfect_ensemble.accuracy()
+vizualisations.baseplot(imperfect_ensemble.accuracy_model,imperfect_ensemble.accuracy_reference,
+                        transpose=True, ylab = imperfect_ensemble.meta['metric'])
 
-forecast_skill = prediction_ensemble.skill()
+forecast_skill = imperfect_ensemble.skill()
 vizualisations.baseplot(forecast_skill, transpose=True,
-                        ylab=f"relative {prediction_ensemble.meta['metric']}")
+                        ylab=f"relative {imperfect_ensemble.meta['metric']}")
 
 #===================#
 # Now with forecast #
 #===================#
 
-sims.forecast(years = 2, observations=xobs)
+sims.forecast(years = 5, observations=xobs)
 xpred = sims.forecast_simulation['ts']
 vizualisations.baseplot(xpred, transpose=True)
 
-prediction_ensemble = forecast_ensemble.PredictionEnsemble(ensemble_predictions=xpred,
+prediction_ensemble = forecast_ensemble.ForecastEnsemble(ensemble_predictions=xpred,
                                                            observations=xobs,
                                                             reference="climatology")
 prediction_ensemble.verification_settings(metric = "rolling_rmse",
@@ -88,36 +89,106 @@ prediction_ensemble.verification_settings(metric = "rolling_rmse",
 
 prediction_ensemble.forecast_accuracy()
 
-v_ref = prediction_ensemble.reference_n
-vizualisations.baseplot(xpred, v_ref, transpose=True,
+ref_mean = prediction_ensemble.reference_mean
+ref_var = prediction_ensemble.reference_var
+vizualisations.baseplot(xpred, ref_mean, transpose=True,
                         ylab="Population size")
+
+fig = plt.figure()
+ax = fig.add_subplot()
+ax.plot(np.transpose(ref_mean), alpha=0.8, color="red")
+ax.fill_between(np.arange(ref_mean.shape[1]),np.transpose(ref_mean+2*ref_var).squeeze(), np.transpose(ref_mean-2*ref_var).squeeze(),
+                alpha=0.3, color="red")
+ax.plot(np.transpose(xpred), alpha=0.8, color="blue")
+#ax.set_xlabel(xlab, size=14)
+#ax.set_ylabel(ylab, size=14)
+fig.show()
+
 vizualisations.baseplot(prediction_ensemble.forecast_accuracy, transpose=True,
                         ylab=f"{prediction_ensemble.meta['metric']}")
 
 
-expectation_fsh, dispersion_fsh = prediction_ensemble.horizon(fh_type = "mean_forecastskill", threshold=1)
-# rather: Probability of exceeding threshold
-expectation_fsh, dispersion_fsh = prediction_ensemble.horizon(fh_type="forecastskill_mean", threshold=1)
+#========#
+# horizon#
+#========#
 
-vizualisations.baseplot(expectation_fsh, expectation_fsh+dispersion_fsh, expectation_fsh+dispersion_fsh)
+# Probability of exceeding threshold
+import horizons
+exp_fsh, var_fsh, fhs = horizons.forecastskill_mean(prediction_ensemble.forecast_accuracy, threshold=0.0006)
+vizualisations.baseplot(exp_fsh, exp_fsh+var_fsh, exp_fsh-var_fsh)
+
+exp_fsh = horizons.mean_forecastskill(prediction_ensemble.forecast_accuracy, threshold=0.0006)
+vizualisations.baseplot(exp_fsh[0])
+
+
+def raw_CNR(obs, pred, squared = False):
+    """
+    CNR - contrast to noise ratio: mean(condition-baseline) / std(baseline)
+    This is basically the same as the square-error-based SNR?
+    Transfered, we have the model as the baseline and the mean as condition.
+    tsnr increases with sample size (see sd).
+    """
+    signal = np.mean((pred - np.mean(obs))) # returns a scalar
+    noise = np.std(obs)
+    if squared:
+        return signal**2/noise**2, signal**2, noise**2
+    else:
+        return signal/noise, signal, noise
+
+cnrs = []
+for i in range(1,xpred.shape[1]):
+    cnrs.append(raw_CNR(xpred[:,:i], xobs[:,i]))
+cnrs = np.array(cnrs)
+vizualisations.baseplot(cnrs)
+
+import matplotlib.pyplot as plt
+# An "interface" to matplotlib.axes.Axes.hist() method
+l = np.linspace(0.01,0.99,40)
+
+qs = np.quantile(xobs.flatten(), l)
+hist_clim, bin_edges = np.histogram(xobs, bins = qs, range=(xobs.min(), xobs.max()), density=True)
+probs = hist_clim*np.diff(bin_edges)
+
+xpreds = xpred[:,:150]
+qs = np.quantile(xobs.flatten(), l)
+hist_clim_pred, bin_edges_pred = np.histogram(xpreds.flatten(), bins = qs, range=(xpreds.min(), xpreds.max()), density=True)
+probs_pred = hist_clim_pred*np.diff(bin_edges_pred)
+
+fig = plt.figure()
+plt.bar(bin_edges[:-1],hist_clim/hist_clim.sum(), width=0.0002)
+plt.bar(bin_edges_pred[:-1],hist_clim_pred/hist_clim_pred.sum(), width=0.0002, alpha = 0.4, color="red")
+fig.show()
 
 
 #===============#
 # t-test horizon#
 #===============#
-t_stats, p_vals = proficiency_metrics.t_statistic(abs_diff, initial_uncertainty) # Where p-value is smaller than threshold.
+
+from scipy.stats import ttest_ind
+
+tstats = []
+pvalues = []
+for i in range(1, xpred.shape[1]):
+    ttest_results = ttest_ind(xobs.flatten(), xpred[:,:i].flatten(), equal_var=False)
+    tstats.append(ttest_results.statistic)
+    pvalues.append(ttest_results.pvalue)
+
+fig = plt.figure()
+plt.plot(tstats, color="blue")
+plt.plot(pvalues, color= "red")
+fig.show()
 
 #===============================#
 # The Lyapunov forecast horizon #
 #===============================#
 
-lyapunovs = dynamics.lyapunovs(perfect_ensemble_derivative_d)
-lyapunovs_stepwise = dynamics.lyapunovs(perfect_ensemble_derivative_d, stepwise=True)
+lyapunovs_stepwise = dynamics.lyapunovs(xsim_derivative, stepwise=True)
+vizualisations.baseplot(lyapunovs_stepwise)
 
 l = 30
-initial_uncertainty_estimate = np.mean(abs((perfect_ensemble_d[:,0]-ts_true[0])))
-
+initial_uncertainty_estimate = np.mean(abs((xsim[:,0]-xobs[:,0])))
 min_D = utils.min_Delta(initial_uncertainty_estimate)
+
 Delta_range = np.linspace(min_D, abs_diff.max(), l)
 delta_range = np.linspace(initial_uncertainty_estimate, initial_uncertainty_estimate*1000, l)
 
