@@ -5,7 +5,7 @@ import utils
 class Simulator:
 
     def __init__(self, model_type, simulation_regime, environment,
-                 set_seed = False):
+                 set_seed = False, print = True):
 
         self.set_seed = set_seed
         self.meta = {'model_type': model_type,
@@ -13,11 +13,11 @@ class Simulator:
                      'environment': environment,
                      'hyper_parameters':None,
                      'model_parameters': None}
-
-        print("SIMULATION UNDER THE FOLLOWING CONDITIONS:")
-        print("Type of Ricker Model that will be used:   ", self.meta['model_type'])
-        print("Simulation from Ricker in the following regime:  ", self.meta['regime'])
-        print("Exogeneous impact on state variable considered?   ", self.meta['environment'])
+        if print:
+            print("SIMULATION UNDER THE FOLLOWING CONDITIONS:")
+            print("Type of Ricker Model that will be used:   ", self.meta['model_type'])
+            print("Simulation from Ricker in the following regime:  ", self.meta['regime'])
+            print("Exogeneous impact on state variable considered?   ", self.meta['environment'])
 
 
     def hyper_parameters(self,simulated_years,ensemble_size,initial_size):
@@ -36,7 +36,7 @@ class Simulator:
         if self.meta['regime'] == "chaotic":
             lam = 2.7
         elif self.meta['regime'] == "non-chaotic":
-            lam = 0.005
+            lam = 0.05
 
         if (self.meta['model_type'] == "single-species") & (self.meta['environment']  == "non-exogeneous"):
             self.ricker = models.Ricker_Single(self.set_seed)
@@ -65,7 +65,7 @@ class Simulator:
         self.meta['model_parameters']['theta'] = {'theta':theta}
         self.ricker.uncertainties(theta, sigma,phi, initial_uncertainty)
 
-    def simulate(self, pars = None):
+    def simulate(self, pars = None, show=True):
 
         """
         A convenience function. Alternatively, extract ricker from simulation object and simulate.
@@ -94,10 +94,11 @@ class Simulator:
         x = simu["ts"]
 
         # For visualizing on the fly
-        if self.meta['model_type'] == "single-species":
-            self.ricker.visualise(np.transpose(x))
-        else:
-            self.ricker.visualise(np.transpose(x[:,:,0]), np.transpose(x[:,:,1]))
+        if show:
+            if self.meta['model_type'] == "single-species":
+                self.ricker.visualise(np.transpose(x))
+            else:
+                self.ricker.visualise(np.transpose(x[:,:,0]), np.transpose(x[:,:,1]))
 
         return x
 

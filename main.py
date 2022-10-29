@@ -12,17 +12,17 @@ import matplotlib.pyplot as plt
 sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous")
-sims.hyper_parameters(simulated_years=10,
+sims.hyper_parameters(simulated_years=1,
                            ensemble_size=10,
-                           initial_size=1)
-xsim = sims.simulate()
+                           initial_size=0.99)
+xsim = sims.simulate({'theta': None,'sigma': 0.00,'phi': 0.00,'initial_uncertainty': 1e-3})
 mod = sims.ricker
 xsim_derivative = mod.derive(xsim)
 vizualisations.baseplot(xsim_derivative, transpose=True)
 
 perfect_ensemble = forecast_ensemble.PerfectEnsemble(ensemble_predictions=xsim,
                                                      reference="rolling_climatology")
-perfect_ensemble.verification_settings(metric = "rolling_rmse",
+perfect_ensemble.verification_settings(metric = "rolling_corrs",
                                        evaluation_style="bootstrap")
 perfect_ensemble.accuracy()
 
