@@ -89,19 +89,24 @@ def mse(reference, ensemble):
     mse = np.mean(np.subtract(reference, ensemble)**2, axis=0)
     return mse
 
-def raw_CNR(obs, pred, squared = False):
+def rolling_CNR(obs, pred, squared = False):
     """
     CNR - contrast to noise ratio: mean(condition-baseline) / std(baseline)
     This is basically the same as the square-error-based SNR?
     Transfered, we have the model as the baseline and the mean as condition.
     tsnr increases with sample size (see sd).
     """
-    signal = np.mean((pred - np.mean(obs))) # returns a scalar
-    noise = np.std(obs)
-    if squared:
-        return signal**2/noise**2, signal**2, noise**2
-    else:
-        return signal/noise, signal, noise
+    cnrs = []
+    for i in range(2,pred.shape[1]):
+        signal = np.mean(np.subtract(pred[:,:i],np.mean(obs[:,:i])), axis=1) # returns a scalar
+        noise = np.std(obs[:,:i])
+        if squared:
+            cnr = signal**2/noise**2
+        else:
+            cnr = signal/noise
+        cnrs.append(cnr)
+
+    return np.transpose(np.array(cnrs))
 
 def t_statistic(x_sample, H0):
     """

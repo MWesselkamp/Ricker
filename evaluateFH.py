@@ -5,9 +5,10 @@ import forecast_ensemble
 import vizualisations
 import numpy as np
 import json
+from utils import legend_without_duplicate_labels
 
 # Create predictions and observations
-def generate_data(phi_preds, metric = "rolling_corrs"):
+def generate_data(phi_preds = 0.0001, metric = "rolling_CNR"):
     sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous", print=False)
@@ -46,10 +47,15 @@ def generate_data(phi_preds, metric = "rolling_corrs"):
 
     return(am, ar, metadata)
 
-def accuracy_plot(threshold, phi, accuracy_model, accuracy_reference):
+def accuracy_plot(threshold, phi, accuracy_model, accuracy_reference, log = False):
 
     fig = plt.figure()
     ax = fig.add_subplot()
+    if log:
+        y = abs(np.nanmin(accuracy_model[accuracy_model != -np.inf]))
+        threshold = np.log(threshold+y)
+        accuracy_model = np.log(accuracy_model+y)
+        accuracy_reference = np.log(accuracy_reference+y)
     ax.axhline(y=threshold, color="black", linewidth = 0.9, linestyle="--")
     ax.plot(np.transpose(accuracy_model), color="lightblue", alpha=0.6)
     ax.plot(np.transpose(accuracy_reference), color="red", linewidth=1.5)
@@ -61,12 +67,18 @@ def accuracy_plot(threshold, phi, accuracy_model, accuracy_reference):
              transform=ax.transAxes)
     fig.savefig(os.path.abspath(pathname_fig))
 
-# correlations: rho = np.linspace(0.0, 0.99, 50)
-rho = np.linspace(0.0, 0.05, 50)
+#=================#
+# Threshold based #
+#=================#
+
+# correlations: rho = np.linspace(0.0, 0.99, 20)
+# absolute_differences : rho = np.linspace(0.0, 0.05, 20)
+# rsquared: rho = np.linspace(0.0, 1.0, 20)
+rho = np.linspace(0.0, 5.0, 20) # CNR
 fh_mod_rho = []
 fh_ref_rho = []
 fh_tot_rho = []
-metric = "absolute_differences"
+metric = "rolling_CNR"
 
 for j in range(len(rho)):
     print("rho is: ", j)
@@ -89,9 +101,22 @@ for j in range(len(rho)):
         if metric == "absolute_differences":
             fh_mod.append(np.argmax(accuracy_model > rho[j], axis=1))
             fh_ref.append(np.argmax(accuracy_reference > rho[j], axis=1))
-        else:
+            accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference)
+
+        elif metric == "rolling_rsquared":
+            fh_mod.append(np.argmax(accuracy_model > rho[j], axis=1))
+            fh_ref.append(np.argmax(accuracy_reference > rho[j], axis=1))
+            accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference, log=True)
+
+        elif metric == "rolling_CNR":
             fh_mod.append(np.argmax(accuracy_model < rho[j], axis=1))
             fh_ref.append(np.argmax(accuracy_reference < rho[j], axis=1))
+            accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference)
+
+        elif metric == "rolling_corrs":
+            fh_mod.append(np.argmax(accuracy_model < rho[j], axis=1))
+            fh_ref.append(np.argmax(accuracy_reference < rho[j], axis=1))
+            accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference)
 
     fh_mod_rho.append(np.array(fh_mod))
     fh_ref_rho.append(np.array(fh_ref))
@@ -100,24 +125,26 @@ fh_mod_rho = np.array(fh_mod_rho)
 fh_ref_rho = np.array(fh_ref_rho)
 fh_tot_rho = np.array(fh_tot_rho)
 
-
 fig = plt.figure()
 ax = fig.add_subplot()
 for i in range(len(phi_preds)):
-    ax.plot(rho, fh_mod_rho[:,i,:].squeeze(), color = "lightblue", alpha = 0.6)
-ax.plot(rho, np.mean(fh_mod_rho, axis=1), color = "darkblue", alpha = 0.6)
-ax.plot(rho, np.mean(np.mean(fh_mod_rho, axis=1), axis=1), color = "yellow")
+    ax.plot(rho, fh_mod_rho[:,i,:].squeeze(), color = "lightblue", alpha = 0.6, label="full ensemble")
+ax.plot(rho, np.mean(fh_mod_rho, axis=1), color = "darkblue", alpha = 0.6, label="ensemble means")
+ax.plot(rho, np.mean(np.mean(fh_mod_rho, axis=1), axis=1), color = "yellow", label = "overall mean")
 ax.set_xlabel('Threshold for rho')
 ax.set_ylabel('Predicted forecast horizon')
+legend_without_duplicate_labels(ax)
 fig.show()
 fig.savefig(os.path.abspath(f"{pathname}predicted_fh1.png"))
 
 fig = plt.figure()
 ax = fig.add_subplot()
-ax.plot(rho, fh_mod_rho[:,0,:].squeeze(), color = "darkblue", alpha = 0.6)
-ax.plot(rho, fh_mod_rho[:,4,:].squeeze(), color = "lightgreen", alpha = 0.6)
+ax.plot(rho, fh_mod_rho[:,0,:].squeeze(), color = "darkblue", alpha = 0.6, label="phi = 0.0")
+ax.plot(rho, fh_mod_rho[:,4,:].squeeze(), color = "lightgreen", alpha = 0.6, label = "phi = 0.0005")
 ax.plot(rho, np.mean(fh_mod_rho[:,4,:].squeeze(), axis=1), color = "green", alpha = 0.6)
 ax.set_xlabel('Threshold for rho')
 ax.set_ylabel('Predicted forecast horizon')
+legend_without_duplicate_labels(ax)
 fig.show()
 fig.savefig(os.path.abspath(f"{pathname}predicted_fh2.png"))
+
