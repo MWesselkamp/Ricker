@@ -47,7 +47,7 @@ class PerfectEnsemble(EnsembleVerfication):
         if self.meta['evaluation_style'] == "single":
             # self.ensemble index for plotting
             control, ensemble_n, emsemble_index = self.sample_ensemble_member()
-            self.meta['other']['ensemble_index'] = emsemble_index
+            #self.meta['other']['ensemble_index'] = emsemble_index.to_list()
 
             reference_simulation = self.reference_model(control)
 
