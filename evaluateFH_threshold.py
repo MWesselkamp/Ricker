@@ -256,5 +256,5 @@ if __name__=="__main__":
         ax.set_xlabel('Threshold for rho')
         ax.set_ylabel('Predicted forecast horizon')
         legend_without_duplicate_labels(ax)
-        fig.savefig(os.path.abspath(f"results/fh_evaluation/threshold_based_{metric}.png"))
+        fig.savefig(os.path.abspath(f"results/fh_evaluation/threshold_based_{m}.png"))
         fig.show()
