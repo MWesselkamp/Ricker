@@ -50,3 +50,17 @@ def legend_without_duplicate_labels(ax):
     handles, labels = ax.get_legend_handles_labels()
     unique = [(h, l) for i, (h, l) in enumerate(zip(handles, labels)) if l not in labels[:i]]
     ax.legend(*zip(*unique))
+
+def add_identity(axes, *line_args, **line_kwargs):
+    # https://stackoverflow.com/questions/22104256/does-matplotlib-have-a-function-for-drawing-diagonal-lines-in-axis-coordinates
+    identity, = axes.plot([], [], *line_args, **line_kwargs)
+    def callback(axes):
+        low_x, high_x = axes.get_xlim()
+        low_y, high_y = axes.get_ylim()
+        low = max(low_x, low_y)
+        high = min(high_x, high_y)
+        identity.set_data([low, high], [low, high])
+    callback(axes)
+    axes.callbacks.connect('xlim_changed', callback)
+    axes.callbacks.connect('ylim_changed', callback)
+    return axes
