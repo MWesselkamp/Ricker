@@ -2,6 +2,7 @@ import numpy as np
 import scipy.special as special
 import math
 from scipy.stats import pearsonr
+import sklearn.metrics
 
 def absolute_differences(reference, ensemble, mean = False):
     absolute_differences = abs(np.subtract(reference, ensemble))
@@ -67,16 +68,13 @@ def rolling_corrs(reference, ensemble, window = 3, abs = False):
         return corrs
 
 
-def rolling_rsquared(y, x):
+def rolling_rsquared(reference, ensemble):
 
     r_sq = []
-    for i in range(1,y.shape[1]):
-        y_mean = np.mean(y[0,:i])
-        ss_res = np.sum(np.subtract(y[0,:i], x[:,:i])**2, axis=1)
-        ss_tot = np.sum(np.subtract(y[0,:i], y_mean)**2)
-        rs = 1 - ss_res/ss_tot
-        r_sq.append(rs)
-    r_sq = np.transpose(np.array(r_sq))
+    for j in range(1, ensemble.shape[1]):
+        r_sq.append([sklearn.metrics.r2_score(reference[:, :j].transpose(), ensemble[i, :j]) for i in range(ensemble.shape[0])])
+    r_sq = np.array(r_sq).transpose()
+
     return r_sq
 
 def rmse(reference, ensemble, standardized = False):
@@ -107,6 +105,7 @@ def rolling_CNR(obs, pred, squared = False):
         cnrs.append(cnr)
 
     return np.transpose(np.array(cnrs))
+
 
 def t_statistic(x_sample, H0):
     """

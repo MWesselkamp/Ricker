@@ -12,17 +12,17 @@ def generate_data(years = 2, phi_preds = 0.0001):
                              environment="non-exogeneous", print=False)
     sims.hyper_parameters(simulated_years=years,
                            ensemble_size=10,
-                           initial_size=0.99)
+                           initial_size=0.98)
     xpreds = sims.simulate(pars={'theta': None,'sigma': 0.00,'phi': phi_preds,'initial_uncertainty': 1e-3},
                            show = False)
 
     obs = simulations.Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
-                             environment="non-exogeneous", print=False)
+                             environment="exogeneous", print=False)
     obs.hyper_parameters(simulated_years=years,
                     ensemble_size=1,
-                    initial_size=(0.98, 0.99))
-    xobs = obs.simulate(pars={'theta': None,'sigma': 0.0001,'phi': 0.0001,'initial_uncertainty': 1e-3},
+                    initial_size=(0.98, 0.98))
+    xobs = obs.simulate(pars={'theta': None,'sigma': 0.0001,'phi': 0.0003,'initial_uncertainty': 1e-3},
                         show = False)[:,:,0]
 
     return xpreds, xobs
@@ -38,7 +38,7 @@ def calculate_tstats(xobs, xpreds):
     return tstats, pvalues
 
 
-xpreds, xobs = generate_data(years = 6)
+xpreds, xobs = generate_data(years = 5)
 
 frameworks = ["imperfect", "perfect"]
 pathname = f"results/fh_evaluation/"
@@ -49,7 +49,7 @@ ax.plot(np.transpose(xpreds), color="blue", label="forecast")
 ax.plot(np.transpose(xobs), color="red", label="observation")
 legend_without_duplicate_labels(ax)
 fig.show()
-fig.savefig(os.path.abspath(f"{pathname}/dynamics.png"))
+fig.savefig(os.path.abspath(f"{pathname}/general/dynamics.png"))
 
 fig = plt.figure()
 ax = fig.add_subplot()
