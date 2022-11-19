@@ -4,7 +4,7 @@ pylab.rc('font', family='sans-serif', size=14)
 import os
 import simulations
 import forecast_ensemble
-import vizualisations
+import pandas as pd
 import numpy as np
 import json
 from utils import legend_without_duplicate_labels
@@ -17,16 +17,16 @@ def generate_data(phi_preds = 0.0001, metric = "rolling_CNR", framework = "perfe
     sims.hyper_parameters(simulated_years=2,
                            ensemble_size=25,
                            initial_size=0.99)
-    xpreds = sims.simulate(pars={'theta': None,'sigma': 0.00,'phi': phi_preds,'initial_uncertainty': 1e-4},
+    xpreds = sims.simulate(pars={'theta': None,'sigma': 0.00,'phi': phi_preds,'initial_uncertainty': 1e-5},
                            show = False)
 
     obs = simulations.Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
-                             environment="exogeneous", print=False)
+                             environment="non-exogeneous", print=False)
     obs.hyper_parameters(simulated_years=2,
                     ensemble_size=1,
                     initial_size=(0.99, 0.99))
-    xobs = obs.simulate(pars={'theta': None,'sigma': 0.0001,'phi': 0.0003,'initial_uncertainty': 1e-4},
+    xobs = obs.simulate(pars={'theta': None,'sigma': 0.0001,'phi': 0.0001,'initial_uncertainty': 1e-4},
                         show = False)[:,:,0]
 
     if framework == "perfect":
@@ -61,6 +61,20 @@ def generate_data(phi_preds = 0.0001, metric = "rolling_CNR", framework = "perfe
 
     return(xobs, xpreds, am, ar, metadata)
 
+def data_plot(xobs, xpreds, fh, pathname):
+
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    plt.plot(xpreds.transpose(), color="lightblue", label="forecast")
+    plt.plot(xobs.transpose(), color="purple", label="observation")
+    low_y, high_y = ax.get_ylim()
+    plt.vlines(fh, low_y, high_y, color="darkgray", linestyles="--")
+    plt.xlabel("Time steps")
+    plt.ylabel("Population size")
+    legend_without_duplicate_labels(ax)
+    plt.tight_layout()
+    fig.savefig(os.path.abspath(pathname))
+
 def accuracy_plot(threshold, phi, accuracy_model, accuracy_reference,
                   pathname_fig, metadata,
                   log = False):
@@ -81,6 +95,7 @@ def accuracy_plot(threshold, phi, accuracy_model, accuracy_reference,
              horizontalalignment='center',
              verticalalignment='center',
              transform=ax.transAxes)
+    plt.tight_layout()
     fig.savefig(os.path.abspath(pathname_fig))
 
 def fh_plot(fhmod,pathname_fig):
@@ -89,24 +104,11 @@ def fh_plot(fhmod,pathname_fig):
     ax.imshow(fhmod, aspect = "auto", cmap=plt.cm.gray)
     ax.set_xlabel('Time steps (weeks)')
     ax.set_ylabel(f"Ensemble member")
+    plt.tight_layout()
     fig.savefig(os.path.abspath(pathname_fig))
 
 def search_sequence_numpy(arr,seq):
     # https://stackoverflow.com/questions/36522220/searching-a-sequence-in-a-numpy-array
-    """ Find sequence in an array using NumPy only.
-
-    Parameters
-    ----------
-    arr    : input 1D array
-    seq    : input 1D array
-
-    Output
-    ------
-    Output : 1D Array of indices in the input array that satisfy the
-    matching of input sequence in the input array.
-    In case of no match, an empty list is returned.
-    """
-
     # Store sizes of input array and sequence
     Na, Nseq = arr.size, seq.size
 
@@ -127,7 +129,7 @@ def search_sequence_numpy(arr,seq):
 # Threshold based #
 #=================#
 
-def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = False):
+def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = True, save_metadata=False, make_plots = False):
 
     if metric == "absolute_differences":
         rho = np.linspace(0.0, 0.005, 50)
@@ -138,7 +140,8 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = False)
     elif metric == "rolling_CNR":
         rho = np.linspace(0.0, 1.0, 50)
 
-    phi_preds = np.linspace(0.00, 0.0001, 2)
+    rho = np.round(rho,2)
+    phi_preds = np.linspace(0.00, 0.00005, 2)
 
     fh_mod_rho = []
     fh_ref_rho = []
@@ -159,25 +162,30 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = False)
             pathname_js = f"{pathname}/{j}{i}meta.json"
             pathname_fig1 = f"{pathname}/{j}{i}accuracy.pdf"
             pathname_fig2 = f"{pathname}/{j}{i}threshold.pdf"
-            with open(os.path.abspath(pathname_js), 'w') as fp:
-                json.dump(metadata, fp)
-            accuracy_plot(rho[j], np.round(phi_preds[i],4), accuracy_model, accuracy_reference,
-                          pathname_fig1, metadata)
+            if save_metadata:
+                with open(os.path.abspath(pathname_js), 'w') as fp:
+                    json.dump(metadata, fp)
 
             if metric == "absolute_differences":
                 if interval:
                     fhmod = (accuracy_model > rho[j])
                     fh_plot(fhmod, pathname_fig2)
+                    fhmod_c = np.argmax(np.mean(accuracy_model, axis=1) > rho[j])
                     #fhmod = (accuracy_model.mean(axis=0) > rho[j])
                     # print(search_sequence_numpy(fhmod[i, :], np.array([True, True, True])))
                     fhs = [min(search_sequence_numpy(fhmod[i, :], np.array([True, True, True]))) for i in
                            range(fhmod.shape[0])]
                     fh_mod.append(fhs)
+                    if make_plots:
+                        data_plot(xobs, xpreds, np.mean(fhmod_c), pathname=f"{pathname}/{j}{i}data_conservative.pdf")
+                        data_plot(xobs, xpreds, np.mean(fhs), pathname=f"{pathname}/{j}{i}data_loose.pdf")
                 else:
                     fh_mod.append(np.argmax(accuracy_model > rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference > rho[j], axis=1))
-                accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
-                              pathname_fig1, metadata)
+                if make_plots:
+                    accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
+                                  pathname_fig1, metadata)
+
 
             elif metric == "rolling_rsquared":
                 if interval:
@@ -190,9 +198,10 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = False)
                 else:
                     fh_mod.append(np.argmax(accuracy_model > rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference > rho[j], axis=1))
-                accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
-                                pathname_fig1, metadata,
-                                log=False)
+                if make_plots:
+                    accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
+                                    pathname_fig1, metadata,
+                                    log=False)
 
             elif metric == "rolling_CNR":
                 if interval:
@@ -205,66 +214,123 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = False)
                 else:
                     fh_mod.append(np.argmax(accuracy_model < rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference < rho[j], axis=1))
-
-                accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
-                              pathname_fig1, metadata)
+                if make_plots:
+                    accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
+                                  pathname_fig1, metadata)
 
             elif metric == "rolling_corrs":
                 if interval:
                     fhmod = (accuracy_model < rho[j])
                     fh_plot(fhmod, pathname_fig2)
-                    #print(search_sequence_numpy(fhmod[i, :], np.array([True, True, True])))
+                    fhmod_c = np.argmax(np.mean(accuracy_model, axis=0) < rho[j])
                     fhs = [min(search_sequence_numpy(fhmod[i, :], np.array([True, True, True]))) for i in
                            range(fhmod.shape[0])]
                     fh_mod.append(fhs)
+                    if make_plots:
+                        data_plot(xobs, xpreds, fhmod_c, pathname=f"{pathname}/{j}{i}data_conservative.pdf")
+                        data_plot(xobs, xpreds, np.mean(fhs), pathname=f"{pathname}/{j}{i}data_loose.pdf")
                 else:
                     fh_mod.append(np.argmax(accuracy_model < rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference < rho[j], axis=1))
-                accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
-                              pathname_fig1, metadata)
+                if make_plots:
+                    accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
+                                  pathname_fig1, metadata)
 
         fh_mod_rho.append(np.array(fh_mod))
         fh_ref_rho.append(np.array(fh_ref))
         fh_tot_rho.append(np.array(fh_tot))
 
     fh_mod_rho = np.array(fh_mod_rho)
-    print(metric, "DONE")
 
-    if interval:
+    if (interval & make_plots) :
 
         fig = plt.figure()
         ax = fig.add_subplot()
         ax.plot(rho, fh_mod_rho[0, :, :].squeeze(), color="darkblue", alpha=0.6, label="$\phi$ = 0.0")
         ax.plot(rho, fh_mod_rho[1, :, :].squeeze(), color="lightgreen", alpha=0.6, label="$\phi$ = 0.0001")
         ax.plot(rho, np.mean(fh_mod_rho[1, :, :].squeeze(), axis=1), color="green", alpha=0.6)
-        ax.set_xlabel('Threshold for $\rho$')
+        ax.set_xlabel("Threshold for rho")
         ax.set_ylabel('Predicted forecast horizon')
         legend_without_duplicate_labels(ax)
-        fig.show()
+        plt.tight_layout()
         fig.savefig(os.path.abspath(f"{pathname}predicted_fh2.pdf"))
 
-        return fh_mod_rho, rho
+    return fh_mod_rho, rho
 
-
-if __name__=="__main__":
-
-    frameworks = ["imperfect", "perfect"]
-    metric = ["rolling_rsquared", "rolling_CNR" , "rolling_corrs", "absolute_differences"] # , "rolling_rsquared", "rolling_CNR",
+def run_evaluation(metric = ["rolling_corrs", "absolute_differences"], frameworks = ["imperfect", "perfect"], make_plots = False):
 
     for m in metric:
         fhs = []
         for f in frameworks:
-            fh_mod_rho, rho = eval_fh(f, m, interval=True)
+            print("Framework:", f)
+            print("Metric:", m)
+            fh_mod_rho, rho = eval_fh(f, m, interval=True, make_plots = make_plots)
             fhs.append(fh_mod_rho)
 
+        if make_plots:
+            fig = plt.figure()
+            ax = fig.add_subplot()
+            ax.fill_between(rho, np.quantile(fhs[0][1, :, :], 0.25, axis=1), np.quantile(fhs[0][1, :, :], 0.75, axis=1),
+                            color="lightgreen", alpha=0.5)
+            ax.plot(rho, np.quantile(fhs[0][1, :, :], 0.5, axis=1), color="darkgreen", alpha=0.7, label="imperfect")
+            ax.fill_between(rho, np.quantile(fhs[1][1, :, :], 0.25, axis=1), np.quantile(fhs[1][1, :, :], 0.75, axis=1),
+                            color="lightblue", alpha=0.5)
+            ax.plot(rho, np.quantile(fhs[1][1, :, :], 0.5, axis=1), color="blue", alpha=0.7, label="perfect")
+            ax.set_xlabel('Threshold for Rho')
+            ax.set_ylabel('Predicted forecast horizon')
+            legend_without_duplicate_labels(ax)
+            plt.tight_layout()
+            fig.savefig(os.path.abspath(f"results/fh_evaluation/threshold_based_{m}.pdf"))
+            fig.show()
+
+def simulate(m):
+
+    nsimus = 10
+    frameworks = ["perfect", "imperfect"]
+    columns = ["framework", "simulation", "rho", "fh_mean", "fh_std"]
+    dfs = []
+
+    for f in frameworks:
+        for i in range(nsimus):
+
+            print("Simu: ", i)
+
+            fh_mod_rho, rho = eval_fh(f,m,interval=True, make_plots=False)
+            fh_mod_rho = fh_mod_rho[1, :, :]
+
+            fh_mean = np.round(fh_mod_rho.mean(axis=1), 2)
+            fh_std = np.round(fh_mod_rho.std(axis=1), 2)
+            simu = np.repeat(i, len(rho))
+            frame = np.repeat(f, len(rho))
+
+            dfs.append(pd.DataFrame([frame, simu, rho, fh_mean, fh_std], index=columns).T)
+
+    return dfs
+
+if __name__=="__main__":
+
+    m = "rolling_corrs"
+    dfs = simulate(m)
+    df = pd.concat(dfs)
+
+    df["simulation"] = pd.to_numeric(df["simulation"])
+    df["rho"] = pd.to_numeric(df["rho"])
+    df["fh_mean"] = pd.to_numeric(df["fh_mean"])
+    df["fh_std"] = pd.to_numeric(df["fh_std"])
+    df["framework"] = pd.to_string(df["framework"])
+
+    grouped = df.groupby("rho")
+    rhos = pd.unique(df["rho"])
+
+    for rho in rhos:
+        gr = grouped.get_group(rho)
         fig = plt.figure()
         ax = fig.add_subplot()
-        ax.fill_between(rho, np.quantile(fhs[0][1, :, :], 0.25, axis=1), np.quantile(fhs[0][1, :, :], 0.75, axis=1), color="lightgreen", alpha=0.5)
-        ax.plot(rho, np.quantile(fhs[0][1, :, :], 0.5, axis=1), color="darkgreen", alpha=0.7, label="imperfect")
-        ax.fill_between(rho, np.quantile(fhs[1][1, :, :], 0.25, axis=1), np.quantile(fhs[1][1, :, :], 0.75, axis=1), color="lightblue", alpha=0.5)
-        ax.plot(rho, np.quantile(fhs[1][1, :, :], 0.5, axis=1), color="blue", alpha=0.7, label="perfect")
-        ax.set_xlabel('Threshold for $\rho$')
-        ax.set_ylabel('Predicted forecast horizon')
-        legend_without_duplicate_labels(ax)
-        fig.savefig(os.path.abspath(f"results/fh_evaluation/threshold_based_{m}.pdf"))
+        gr.boxplot(column = 'fh_mean')
         fig.show()
+
+    ls1 = ["a", "b", "c"]
+    ls2 = ["d", "e", "f"]
+    ls3 = ["g", "h", "i"]
+
+    pd.DataFrame([ls1, ls2, ls3], index=["A", "B", "C"]).T

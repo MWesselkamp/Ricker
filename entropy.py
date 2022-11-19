@@ -10,14 +10,25 @@ from math import factorial
 
 # So what distributions, if not discrete empirical distributions?
 # Lets use a stepwise Kernel Density Estimation.
-
 sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
-                             environment="non-exogeneous")
-sims.hyper_parameters(simulated_years=100,
-                        ensemble_size=10,
-                        initial_size=(950)) # here we have to give init for both populations
-x = sims.simulate()
+                             environment="non-exogeneous", print=False)
+sims.hyper_parameters(simulated_years=2,
+                           ensemble_size=15,
+                           initial_size=0.99)
+x = sims.simulate(pars={'theta': None,'sigma': 0.00,'phi': 0.0001,'initial_uncertainty': 1e-4},
+                           show = False)
+
+clim = simulations.Simulator(model_type="single-species",
+                             simulation_regime="non-chaotic",
+                             environment="non-exogeneous", print=False)
+clim.hyper_parameters(simulated_years=100,
+                           ensemble_size=15,
+                           initial_size=0.99)
+climatology = clim.simulate(pars={'theta': None,'sigma': 0.00,'phi': 0.0001,'initial_uncertainty': 1e-4},
+                           show = False)
+climatology_today = climatology[:,(climatology.shape[1]-x.shape[1]):]
+
 x_pred, x_clim = np.split(x, 2, axis=1)
 
 baseplot(x_clim, x_pred,transpose=True,
@@ -122,13 +133,6 @@ def word_distr(x_emb, tie_method='average'):
         c[k] = v/len(words)
     return c
 
-
-x = np.random.normal(0,1,30)
-x_emb = embed(x, m=3)
-wd = word_distr(x_emb)
-denom = np.log2(2*factorial(3))
-ent = entropy(wd)/denom
-
 def permutation_entropy(x, m, d):
 
     x_emb = embed(x, m=m)
@@ -138,3 +142,19 @@ def permutation_entropy(x, m, d):
 
     return ent
 
+
+x_sim = np.random.normal(0,1,30)
+
+words = []
+PEs = []
+for i in range(x.shape[0]):
+    x_emb = embed(x[i,:], m=4)
+    wd = word_distr(x_emb)
+    words.append(wd)
+    denom = np.log2(2*factorial(3))
+    ent = entropy(wd)/denom
+    PEs.append(ent)
+
+fig = plt.figure()
+plt.plot(list(wd.values()))
+fig.show()
