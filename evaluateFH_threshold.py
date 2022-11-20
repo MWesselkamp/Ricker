@@ -285,7 +285,7 @@ def run_evaluation(metric = ["rolling_corrs", "absolute_differences"], framework
 
 def simulate(m):
 
-    nsimus = 10
+    nsimus = 100
     frameworks = ["perfect", "imperfect"]
     columns = ["framework", "simulation", "rho", "fh_mean", "fh_std"]
     dfs = []
@@ -293,15 +293,16 @@ def simulate(m):
     for f in frameworks:
         for i in range(nsimus):
 
-            print("Simu: ", i)
-
             fh_mod_rho, rho = eval_fh(f,m,interval=True, make_plots=False)
             fh_mod_rho = fh_mod_rho[1, :, :]
 
             fh_mean = np.round(fh_mod_rho.mean(axis=1), 2)
             fh_std = np.round(fh_mod_rho.std(axis=1), 2)
             simu = np.repeat(i, len(rho))
-            frame = np.repeat(f, len(rho))
+            if f == "perfect":
+                frame = np.repeat(0, len(rho))
+            else:
+                frame = np.repeat(1, len(rho))
 
             dfs.append(pd.DataFrame([frame, simu, rho, fh_mean, fh_std], index=columns).T)
 
@@ -309,28 +310,32 @@ def simulate(m):
 
 if __name__=="__main__":
 
-    m = "rolling_corrs"
-    dfs = simulate(m)
-    df = pd.concat(dfs)
+    ms = ["absolute_differences"]#"rolling_corrs",
+    for m in ms:
+        dfs = simulate(m)
+        df = pd.concat(dfs)
 
-    df["simulation"] = pd.to_numeric(df["simulation"])
-    df["rho"] = pd.to_numeric(df["rho"])
-    df["fh_mean"] = pd.to_numeric(df["fh_mean"])
-    df["fh_std"] = pd.to_numeric(df["fh_std"])
-    df["framework"] = pd.to_string(df["framework"])
+        df["simulation"] = pd.to_numeric(df["simulation"])
+        df["rho"] = pd.to_numeric(df["rho"])
+        df["fh_mean"] = pd.to_numeric(df["fh_mean"])
+        df["fh_std"] = pd.to_numeric(df["fh_std"])
+        df["framework"] = df["framework"].astype("int")
 
-    grouped = df.groupby("rho")
-    rhos = pd.unique(df["rho"])
+        os.makedirs('results/fh_evaluation', exist_ok=True)
+        df.to_csv(f"results/fh_evaluation/fh_simu_{m}.csv", index=False)
 
-    for rho in rhos:
-        gr = grouped.get_group(rho)
-        fig = plt.figure()
-        ax = fig.add_subplot()
-        gr.boxplot(column = 'fh_mean')
-        fig.show()
+        print(m, "DONE")
 
-    ls1 = ["a", "b", "c"]
-    ls2 = ["d", "e", "f"]
-    ls3 = ["g", "h", "i"]
+    #grouped = df.groupby("rho")
+    #rhos = pd.unique(df["rho"])
 
-    pd.DataFrame([ls1, ls2, ls3], index=["A", "B", "C"]).T
+    #for rho in rhos:
+    #    gr = grouped.get_group(rho)
+
+    #    grp = gr.loc[gr['framework'] == 0].reset_index(drop=True)
+    #    grip = gr.loc[gr['framework'] == 1].reset_index(drop=True)
+    #    gr_plot= pd.concat([grp["fh_mean"], grip["fh_mean"]], axis=1, keys=["perfect", "imperfect"])
+    #    fig = plt.figure()
+    #    ax = fig.add_subplot()
+    #    gr_plot.boxplot(column = ["perfect", "imperfect"])
+    #    fig.show()
