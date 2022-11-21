@@ -65,21 +65,25 @@ class Model(ABC):
 
         # Simulate one trajectory or ensemble?
         if not type(init) is float:
-            timeseries = np.full((iterations,len(init)), init, dtype=np.float)
+            timeseries_true = np.full((iterations,len(init)), init, dtype=np.float)
+            timeseries_obs = np.full((iterations, len(init)), init, dtype=np.float)
         else:
-            timeseries = np.full(iterations, init, dtype=np.float)
+            timeseries_true = np.full(iterations, init, dtype=np.float)
+            timeseries_obs = np.full(iterations, init, dtype=np.float)
 
         for i in range(1, iterations):
 
             # Exogeneous variable or not?
             if not ex is None:
-                timeseries[i] = self.model(timeseries[i - 1], ex[i]) # true state
+                timeseries_true[i] = self.model(timeseries_true[i - 1], ex[i]) # true state
             else:
-                timeseries[i] = self.model(timeseries[i - 1], ex) # true state
+                timeseries_true[i] = self.model(timeseries_true[i - 1], ex) # true state
 
-            timeseries[i] = self.num.normal(timeseries[i], self.phi) # observed state
+            timeseries_obs[i] = self.num.normal(timeseries_true[i], self.phi) # observed state
 
-        return timeseries
+        self.timeseries_true = timeseries_true
+
+        return timeseries_obs
 
     def simulate(self, hp, ex = None):
         """

@@ -279,40 +279,35 @@ def run_evaluation(metric = ["rolling_corrs", "absolute_differences"], framework
             ax.set_xlabel('Threshold for Rho')
             ax.set_ylabel('Predicted forecast horizon')
             legend_without_duplicate_labels(ax)
+            ax.set_box_aspect(1)
             plt.tight_layout()
             fig.savefig(os.path.abspath(f"results/fh_evaluation/threshold_based_{m}.pdf"))
             fig.show()
 
-def simulate(m):
+def simulate(ms=["rolling_corrs"], nsimus = 100):
 
-    nsimus = 100
-    frameworks = ["perfect", "imperfect"]
-    columns = ["framework", "simulation", "rho", "fh_mean", "fh_std"]
-    dfs = []
-
-    for f in frameworks:
-        for i in range(nsimus):
-
-            fh_mod_rho, rho = eval_fh(f,m,interval=True, make_plots=False)
-            fh_mod_rho = fh_mod_rho[1, :, :]
-
-            fh_mean = np.round(fh_mod_rho.mean(axis=1), 2)
-            fh_std = np.round(fh_mod_rho.std(axis=1), 2)
-            simu = np.repeat(i, len(rho))
-            if f == "perfect":
-                frame = np.repeat(0, len(rho))
-            else:
-                frame = np.repeat(1, len(rho))
-
-            dfs.append(pd.DataFrame([frame, simu, rho, fh_mean, fh_std], index=columns).T)
-
-    return dfs
-
-if __name__=="__main__":
-
-    ms = ["absolute_differences"]#"rolling_corrs",
     for m in ms:
-        dfs = simulate(m)
+
+        frameworks = ["perfect", "imperfect"]
+        columns = ["framework", "simulation", "rho", "fh_mean", "fh_std"]
+        dfs = []
+
+        for f in frameworks:
+            for i in range(nsimus):
+
+                fh_mod_rho, rho = eval_fh(f,m,interval=True, make_plots=False)
+                fh_mod_rho = fh_mod_rho[1, :, :]
+
+                fh_mean = np.round(fh_mod_rho.mean(axis=1), 2)
+                fh_std = np.round(fh_mod_rho.std(axis=1), 2)
+                simu = np.repeat(i, len(rho))
+                if f == "perfect":
+                    frame = np.repeat(0, len(rho))
+                else:
+                    frame = np.repeat(1, len(rho))
+
+                dfs.append(pd.DataFrame([frame, simu, rho, fh_mean, fh_std], index=columns).T)
+
         df = pd.concat(dfs)
 
         df["simulation"] = pd.to_numeric(df["simulation"])
@@ -326,16 +321,61 @@ if __name__=="__main__":
 
         print(m, "DONE")
 
-    #grouped = df.groupby("rho")
-    #rhos = pd.unique(df["rho"])
+    return df
 
-    #for rho in rhos:
-    #    gr = grouped.get_group(rho)
+def plot_results(m):
 
-    #    grp = gr.loc[gr['framework'] == 0].reset_index(drop=True)
-    #    grip = gr.loc[gr['framework'] == 1].reset_index(drop=True)
-    #    gr_plot= pd.concat([grp["fh_mean"], grip["fh_mean"]], axis=1, keys=["perfect", "imperfect"])
-    #    fig = plt.figure()
-    #    ax = fig.add_subplot()
-    #    gr_plot.boxplot(column = ["perfect", "imperfect"])
-    #    fig.show()
+    df = pd.read_csv(f"results/fh_evaluation/fh_simu_{m}.csv")
+    df_p = df[df['framework'] == 0]
+    df_ip = df[df['framework'] == 1]
+
+    x = np.array(df_p["fh_mean"])
+    y = np.array(df_ip["fh_mean"])
+    rho = np.array(df_ip["rho"])
+
+    l = np.linspace(0.01, 0.99, 20)
+    qs = np.quantile(x.flatten(), l)
+    qs_y = np.quantile(y.flatten(), l)
+    hx, bx = np.histogram(x, bins=qs, range=(x.min(), x.max()), density=True)
+    hy, by = np.histogram(y, bins=qs_y, range=(y.min(), y.max()), density=True)
+
+    pathname = f"results/fh_evaluation/"
+
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    plt.bar(bx[:-1], hx, color="lightblue", alpha=0.8, width=1.1, label="$h_{max}$")
+    plt.bar(by[:-1], hy, color="lightgreen", alpha=0.8, width=1.1, label="$h_{real}$")
+    low_y, high_y = ax.get_ylim()
+    plt.vlines(x.mean(), low_y, high_y, linestyles="-", color="blue")
+    plt.vlines(y.mean(), low_y, high_y, linestyles="-", color="green")
+    plt.xlabel("$h$")
+    plt.ylabel("Density estimate")
+    legend_without_duplicate_labels(ax)
+    plt.tight_layout()
+    ax.set_box_aspect(1)
+    fig.show()
+    fig.savefig(os.path.abspath(f"{pathname}/threshold_rolling_corrs_hist.pdf"))
+
+    fig = plt.figure()
+    ax = fig.add_subplot()
+    p1 = plt.scatter(x, y, c=rho, cmap="Blues", alpha=0.6, label="Rho")
+    low_y, high_y = ax.get_ylim()
+    low_x, high_x = ax.get_xlim()
+    plt.xlabel("$h_{max}$")
+    plt.ylabel("$h_{real}$")
+    plt.ylim((low_y, high_x))
+    plt.xlim((low_y, high_x))
+    # legend_without_duplicate_labels(ax)
+    fig.colorbar(p1, label='Rho')
+    plt.tight_layout()
+    ax.set_box_aspect(1)
+    fig.show()
+    fig.savefig(os.path.abspath(f"{pathname}/threshold_rolling_corrs_reg.pdf"))
+
+
+if __name__=="__main__":
+
+    run_evaluation(make_plots=True)
+    # df = simulate()
+    # plot_results()
+
