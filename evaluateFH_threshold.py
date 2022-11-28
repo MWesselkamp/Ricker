@@ -7,16 +7,22 @@ import forecast_ensemble
 import pandas as pd
 import numpy as np
 import json
-from utils import legend_without_duplicate_labels
+from utils import legend_without_duplicate_labels, add_identity
 
 # Create predictions and observations
-def generate_data(phi_preds = 0.0001, metric = "rolling_CNR", framework = "perfect"):
+def generate_data(phi_preds = 0.0001, metric = "rolling_CNR", framework = "perfect", state="instable"):
+
+    if state=="instable":
+        init = 0.99
+    else:
+        init=1.0
+
     sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous", print=False)
     sims.hyper_parameters(simulated_years=2,
                            ensemble_size=25,
-                           initial_size=0.99)
+                           initial_size=init)
     xpreds = sims.simulate(pars={'theta': None,'sigma': 0.00,'phi': phi_preds,'initial_uncertainty': 1e-5},
                            show = False)
 
@@ -25,8 +31,8 @@ def generate_data(phi_preds = 0.0001, metric = "rolling_CNR", framework = "perfe
                              environment="non-exogeneous", print=False)
     obs.hyper_parameters(simulated_years=2,
                     ensemble_size=1,
-                    initial_size=(0.99, 0.99))
-    xobs = obs.simulate(pars={'theta': None,'sigma': 0.0001,'phi': 0.0001,'initial_uncertainty': 1e-4},
+                    initial_size=(init, init))
+    xobs = obs.simulate(pars={'theta': None,'sigma': 0.0001,'phi': 0.0003,'initial_uncertainty': 1e-4},
                         show = False)[:,:,0]
 
     if framework == "perfect":
@@ -129,7 +135,7 @@ def search_sequence_numpy(arr,seq):
 # Threshold based #
 #=================#
 
-def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = True, save_metadata=False, make_plots = False):
+def eval_fh(framework = "imperfect", metric = "rolling_corrs", state="instable", interval = True, save_metadata=False, make_plots = False):
 
     if metric == "absolute_differences":
         rho = np.linspace(0.0, 0.005, 50)
@@ -160,8 +166,8 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = True, 
 
             pathname = f"results/fh_evaluation/{framework}/threshold/{metadata['ensemble']['meta']['metric']}"
             pathname_js = f"{pathname}/{j}{i}meta.json"
-            pathname_fig1 = f"{pathname}/{j}{i}accuracy.pdf"
-            pathname_fig2 = f"{pathname}/{j}{i}threshold.pdf"
+            pathname_fig1 = f"{pathname}/{j}{i}accuracy_{state}.pdf"
+            pathname_fig2 = f"{pathname}/{j}{i}threshold_{state}.pdf"
             if save_metadata:
                 with open(os.path.abspath(pathname_js), 'w') as fp:
                     json.dump(metadata, fp)
@@ -177,8 +183,8 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = True, 
                            range(fhmod.shape[0])]
                     fh_mod.append(fhs)
                     if make_plots:
-                        data_plot(xobs, xpreds, np.mean(fhmod_c), pathname=f"{pathname}/{j}{i}data_conservative.pdf")
-                        data_plot(xobs, xpreds, np.mean(fhs), pathname=f"{pathname}/{j}{i}data_loose.pdf")
+                        data_plot(xobs, xpreds, np.mean(fhmod_c), pathname=f"{pathname}/{j}{i}data_conservative_{state}.pdf")
+                        data_plot(xobs, xpreds, np.mean(fhs), pathname=f"{pathname}/{j}{i}data_loose_{state}.pdf")
                 else:
                     fh_mod.append(np.argmax(accuracy_model > rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference > rho[j], axis=1))
@@ -227,8 +233,8 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = True, 
                            range(fhmod.shape[0])]
                     fh_mod.append(fhs)
                     if make_plots:
-                        data_plot(xobs, xpreds, fhmod_c, pathname=f"{pathname}/{j}{i}data_conservative.pdf")
-                        data_plot(xobs, xpreds, np.mean(fhs), pathname=f"{pathname}/{j}{i}data_loose.pdf")
+                        data_plot(xobs, xpreds, fhmod_c, pathname=f"{pathname}/{j}{i}data_conservative_{state}.pdf")
+                        data_plot(xobs, xpreds, np.mean(fhs), pathname=f"{pathname}/{j}{i}data_loose_{state}.pdf")
                 else:
                     fh_mod.append(np.argmax(accuracy_model < rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference < rho[j], axis=1))
@@ -253,42 +259,45 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", interval = True, 
         ax.set_ylabel('Predicted forecast horizon')
         legend_without_duplicate_labels(ax)
         plt.tight_layout()
-        fig.savefig(os.path.abspath(f"{pathname}predicted_fh2.pdf"))
+        fig.savefig(os.path.abspath(f"{pathname}predicted_fh2_{state}.pdf"))
 
     return fh_mod_rho, rho
 
-def run_evaluation(metric = ["rolling_corrs", "absolute_differences"], frameworks = ["imperfect", "perfect"], make_plots = False):
+def run_evaluation(metric = ["rolling_corrs", "absolute_differences"], frameworks = ["imperfect", "perfect"], state=["stable", "instable"], make_plots = False):
 
     for m in metric:
         fhs = []
         for f in frameworks:
-            print("Framework:", f)
-            print("Metric:", m)
-            fh_mod_rho, rho = eval_fh(f, m, interval=True, make_plots = make_plots)
-            fhs.append(fh_mod_rho)
+            for s in state:
+                fh_mod_rho, rho = eval_fh(f, m, s, interval=True, make_plots = make_plots)
+                fhs.append(fh_mod_rho)
 
-        if make_plots:
-            fig = plt.figure()
-            ax = fig.add_subplot()
-            ax.fill_between(rho, np.quantile(fhs[0][1, :, :], 0.25, axis=1), np.quantile(fhs[0][1, :, :], 0.75, axis=1),
-                            color="lightgreen", alpha=0.5)
-            ax.plot(rho, np.quantile(fhs[0][1, :, :], 0.5, axis=1), color="darkgreen", alpha=0.7, label="imperfect")
-            ax.fill_between(rho, np.quantile(fhs[1][1, :, :], 0.25, axis=1), np.quantile(fhs[1][1, :, :], 0.75, axis=1),
-                            color="lightblue", alpha=0.5)
-            ax.plot(rho, np.quantile(fhs[1][1, :, :], 0.5, axis=1), color="blue", alpha=0.7, label="perfect")
-            ax.set_xlabel('Threshold for Rho')
-            ax.set_ylabel('Predicted forecast horizon')
-            legend_without_duplicate_labels(ax)
-            ax.set_box_aspect(1)
-            plt.tight_layout()
-            fig.savefig(os.path.abspath(f"results/fh_evaluation/threshold_based_{m}.pdf"))
-            fig.show()
+            if make_plots:
+                for i in range(2):
+                    fig = plt.figure()
+                    ax = fig.add_subplot()
+                    ax.fill_between(rho, np.quantile(fhs[0][1, :, :], 0.25, axis=1), np.quantile(fhs[0][1, :, :], 0.75, axis=1),
+                                    color="lightgreen", alpha=0.5)
+                    ax.plot(rho, np.quantile(fhs[0][1, :, :], 0.5, axis=1), color="darkgreen", alpha=0.7, label="imperfect")
+                    ax.fill_between(rho, np.quantile(fhs[1][1, :, :], 0.25, axis=1), np.quantile(fhs[1][1, :, :], 0.75, axis=1),
+                                    color="lightblue", alpha=0.5)
+                    ax.plot(rho, np.quantile(fhs[1][1, :, :], 0.5, axis=1), color="blue", alpha=0.7, label="perfect")
+                    ax.set_xlabel('Threshold for Rho')
+                    ax.set_ylabel('Predicted forecast horizon')
+                    legend_without_duplicate_labels(ax)
+                    ax.set_box_aspect(1)
+                    plt.tight_layout()
+                    fig.savefig(os.path.abspath(f"results/fh_evaluation/threshold_based_{m}_{s}_{i}.pdf"))
+                    fig.show()
+
+            print(f"DONE: {m}")
 
 def simulate(ms=["rolling_corrs"], nsimus = 100):
 
     for m in ms:
 
         frameworks = ["perfect", "imperfect"]
+        state = ["stable", "instable"]
         columns = ["framework", "simulation", "rho", "fh_mean", "fh_std"]
         dfs = []
 
@@ -319,7 +328,7 @@ def simulate(ms=["rolling_corrs"], nsimus = 100):
         os.makedirs('results/fh_evaluation', exist_ok=True)
         df.to_csv(f"results/fh_evaluation/fh_simu_{m}.csv", index=False)
 
-        print(m, "DONE")
+        print(f"DONE: {m}")
 
     return df
 
@@ -369,6 +378,7 @@ def plot_results(m):
     fig.colorbar(p1, label='Rho')
     plt.tight_layout()
     ax.set_box_aspect(1)
+    add_identity(ax, color="r", ls="--")
     fig.show()
     fig.savefig(os.path.abspath(f"{pathname}/threshold_rolling_corrs_reg.pdf"))
 
@@ -378,4 +388,30 @@ if __name__=="__main__":
     run_evaluation(make_plots=True)
     # df = simulate()
     # plot_results()
+    #m = "rolling_corrs"
 
+    #df = pd.read_csv(f"results/fh_evaluation/fh_simu_{m}.csv")
+    #df_p = df[((df['framework'] == 0) & (df['rho'] == 0.46))]
+    #df_ip = df[((df['framework'] == 1) & (df['rho'] == 0.46))]
+
+    #x = np.array(df_p["fh_mean"])
+    #y = np.array(df_ip["fh_mean"])
+    #rho = np.array(df_ip["rho"])
+
+    #pathname = f"results/fh_evaluation/"
+
+    #fig = plt.figure()
+    #ax = fig.add_subplot()
+    #p1 = plt.scatter(x, y,  c="blue", alpha=0.6, label="Rho")
+    #low_y, high_y = ax.get_ylim()
+    #low_x, high_x = ax.get_xlim()
+    #plt.xlabel("$h_{max}$")
+    #plt.ylabel("$h_{real}$")
+    #plt.ylim((low_y, high_x))
+    #plt.xlim((low_y, high_x))
+    # legend_without_duplicate_labels(ax)
+    #fig.colorbar(p1, label='Rho')
+    #plt.tight_layout()
+    #ax.set_box_aspect(1)
+    #fig.show()
+    #fig.savefig(os.path.abspath(f"{pathname}/threshold_rolling_corrs_reg.pdf"))
