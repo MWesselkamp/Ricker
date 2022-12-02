@@ -37,6 +37,8 @@ class Simulator:
             lam = 2.7
         elif self.meta['regime'] == "non-chaotic":
             lam = 0.05
+        else:
+            lam = self.meta['regime']
 
         if (self.meta['model_type'] == "single-species") & (self.meta['environment']  == "non-exogeneous"):
             self.ricker = models.Ricker_Single(self.set_seed)
@@ -63,7 +65,7 @@ class Simulator:
 
 
         self.meta['model_parameters']['theta'] = {'theta':theta}
-        self.ricker.uncertainties(theta, sigma,phi, initial_uncertainty)
+        self.ricker.parameters(theta, {"sigma":sigma,"phi":phi, "init_u":initial_uncertainty})
 
     def simulate(self, pars = None, show=True):
 

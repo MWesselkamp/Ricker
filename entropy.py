@@ -103,7 +103,8 @@ plt.bar(bin_edges[:-1],hist_clim,width=1)
 fig.show()
 
 
-# Continued: Let's explore the permutation entropy, based on Pennekamp 2019
+# Continued: Let's explore the permutation entropy,
+# based on Pennekamp 2019
 # PE based on an embedded time series
 def embed(x, m, d = 1):
     """

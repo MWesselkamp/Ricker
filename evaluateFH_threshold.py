@@ -10,7 +10,7 @@ import json
 from utils import legend_without_duplicate_labels, add_identity
 
 # Create predictions and observations
-def generate_data(phi_preds = 0.0001, metric = "rolling_CNR", framework = "perfect", state="instable"):
+def generate_data(sigma_preds = 0.0001, metric = "rolling_CNR", framework = "perfect", state="instable"):
 
     if state=="instable":
         init = 0.99
@@ -23,7 +23,7 @@ def generate_data(phi_preds = 0.0001, metric = "rolling_CNR", framework = "perfe
     sims.hyper_parameters(simulated_years=2,
                            ensemble_size=25,
                            initial_size=init)
-    xpreds = sims.simulate(pars={'theta': None,'sigma': 0.00,'phi': phi_preds,'initial_uncertainty': 1e-5},
+    xpreds = sims.simulate(pars={'theta': None,'sigma': sigma_preds,'phi': 0.000,'initial_uncertainty': 1e-5},
                            show = False)
 
     obs = simulations.Simulator(model_type="multi-species",
@@ -97,7 +97,7 @@ def accuracy_plot(threshold, phi, accuracy_model, accuracy_reference,
     ax.axhline(y=threshold, color="black", linewidth=0.9, linestyle="--")
     ax.set_xlabel('Time steps (weeks)')
     ax.set_ylabel(f"Accuracy: {metadata['ensemble']['meta']['metric']}")
-    plt.text(0.2, 0.03, f"$\phi$: {phi}",
+    plt.text(0.2, 0.03, f"$\epsilon$: {phi}",
              horizontalalignment='center',
              verticalalignment='center',
              transform=ax.transAxes)
@@ -135,26 +135,31 @@ def search_sequence_numpy(arr,seq):
 # Threshold based #
 #=================#
 
-def eval_fh(framework = "imperfect", metric = "rolling_corrs", state="instable", interval = True, save_metadata=False, make_plots = False):
+def eval_fh(framework = "imperfect", metric = "rolling_corrs", state="instable", confounder = "rho",
+            interval = True, save_metadata=False, make_plots = False):
 
-    if metric == "absolute_differences":
-        rho = np.linspace(0.0, 0.005, 50)
-    elif metric == "rolling_corrs":
-        rho = np.linspace(0.0, 0.99, 50)
-    elif metric == "rolling_rsquared":
-        rho = np.linspace(0.0, 1.0, 50)
-    elif metric == "rolling_CNR":
-        rho = np.linspace(0.0, 1.0, 50)
+    if confounder == "rho":
+        if metric == "absolute_differences":
+            rho = np.linspace(0.0, 0.005, 50)
+        elif metric == "rolling_corrs":
+            rho = np.linspace(0.0, 0.99, 50)
+        elif metric == "rolling_rsquared":
+            rho = np.linspace(0.0, 1.0, 50)
+        elif metric == "rolling_CNR":
+            rho = np.linspace(0.0, 1.0, 50)
+    elif confounder == "r":
+        if metric == "rolling_corrs":
+            rho = 0.5
 
     rho = np.round(rho,2)
-    phi_preds = np.linspace(0.00, 0.00005, 2)
+    sigma_preds = np.linspace(0.00, 0.00005, 2)
 
     fh_mod_rho = []
     fh_ref_rho = []
     fh_tot_rho = []
 
-    for i in range(len(phi_preds)):
-        xobs, xpreds, accuracy_model, accuracy_reference, metadata = generate_data(phi_preds = phi_preds[i],
+    for i in range(len(sigma_preds)):
+        xobs, xpreds, accuracy_model, accuracy_reference, metadata = generate_data(sigma_preds = sigma_preds[i],
                                                                  metric = metric,
                                                                  framework = framework)
 
@@ -189,7 +194,7 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", state="instable",
                     fh_mod.append(np.argmax(accuracy_model > rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference > rho[j], axis=1))
                 if make_plots:
-                    accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
+                    accuracy_plot(rho[j], np.round(sigma_preds[i], 4), accuracy_model, accuracy_reference,
                                   pathname_fig1, metadata)
 
 
@@ -205,7 +210,7 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", state="instable",
                     fh_mod.append(np.argmax(accuracy_model > rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference > rho[j], axis=1))
                 if make_plots:
-                    accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
+                    accuracy_plot(rho[j], np.round(sigma_preds[i], 4), accuracy_model, accuracy_reference,
                                     pathname_fig1, metadata,
                                     log=False)
 
@@ -221,7 +226,7 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", state="instable",
                     fh_mod.append(np.argmax(accuracy_model < rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference < rho[j], axis=1))
                 if make_plots:
-                    accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
+                    accuracy_plot(rho[j], np.round(sigma_preds[i], 4), accuracy_model, accuracy_reference,
                                   pathname_fig1, metadata)
 
             elif metric == "rolling_corrs":
@@ -239,7 +244,7 @@ def eval_fh(framework = "imperfect", metric = "rolling_corrs", state="instable",
                     fh_mod.append(np.argmax(accuracy_model < rho[j], axis=1))
                     fh_ref.append(np.argmax(accuracy_reference < rho[j], axis=1))
                 if make_plots:
-                    accuracy_plot(rho[j], np.round(phi_preds[i], 4), accuracy_model, accuracy_reference,
+                    accuracy_plot(rho[j], np.round(sigma_preds[i], 4), accuracy_model, accuracy_reference,
                                   pathname_fig1, metadata)
 
         fh_mod_rho.append(np.array(fh_mod))

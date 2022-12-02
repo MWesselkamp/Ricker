@@ -8,8 +8,8 @@ from scipy.stats import norm, entropy
 from utils import legend_without_duplicate_labels, add_identity
 
 # Create predictions and observations
-def generate_data(years = 2, init = 0.99, phi_preds = 0.0001,
-                  pathname = f"results/fh_evaluation/entropy", state ="stable"):
+def generate_data(years = 2, init = 0.99, phi_preds = 0.0001, state ="stable",
+                  pathname = f"results/fh_evaluation/entropy"):
     sims = simulations.Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous", print=False)

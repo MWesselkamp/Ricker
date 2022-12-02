@@ -18,7 +18,7 @@ class Model(ABC):
         else:
             self.num = np.random.RandomState()
 
-    def uncertainties(self, theta, sigma, phi, initial_uncertainty):
+    def parameters(self, theta, errors):
         """
         Set true model parameters and precision for sampling under uncertainty.
         :param theta: dict. Model Parameters, i.e. r and sigma.
@@ -26,9 +26,9 @@ class Model(ABC):
         :return:
         """
         self.theta = theta
-        self.sigma = sigma
-        self.phi = phi
-        self.initial_uncertainty = initial_uncertainty
+        self.sigma = errors["sigma"]
+        self.phi = errors["phi"]
+        self.initial_uncertainty = errors["init_u"]
 
     def print_parameters(self):
         """

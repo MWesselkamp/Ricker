@@ -208,12 +208,13 @@ def eval_fsh(metric, state, years = 2, make_plots=True):
         fig = plt.figure()
         ax = fig.add_subplot()
         ax.hlines(1, 0, xpreds.shape[1], color="black", linestyles="--")
-        plt.plot((p_ref.transpose() / p_model.transpose()), color="lightblue", label="perfect")
-        if metric != "snr":
-            plt.plot((p_ref.transpose()/p_model.transpose()).mean(axis=1), color="blue", label="perfect")
+        if metric == "snr":
+            plt.plot((p_model.transpose()/p_ref.transpose()), color="blue", label="perfect")
+            plt.plot((ip_model/ip_ref), color="darkgreen", label="imperfect")
         else:
+            plt.plot((p_ref.transpose() / p_model.transpose()), color="lightblue", label="perfect")
             plt.plot(((p_ref.transpose()/p_model.transpose())), color="blue", label="perfect")
-        plt.plot((ip_ref/ip_model), color="darkgreen", label="imperfect")
+            plt.plot((ip_ref/ip_model), color="darkgreen", label="imperfect")
         plt.xlabel("Time steps")
         plt.ylabel(f"Skill: {metric}")
         legend_without_duplicate_labels(ax)
@@ -225,12 +226,13 @@ def eval_fsh(metric, state, years = 2, make_plots=True):
         fig = plt.figure()
         ax = fig.add_subplot()
         ax.hlines(0, 0, xpreds.shape[1], color="black", linestyles="--")
-        plt.plot(np.log((p_ref.transpose() / p_model.transpose())), color="lightblue")
-        if metric != "snr":
-            plt.plot(np.log((p_ref.transpose() / p_model.transpose()).mean(axis=1)), color="blue", label="perfect")
+        if metric == "snr":
+            plt.plot(np.log(p_model.transpose() / p_ref.transpose()), color="blue", label="perfect")
+            plt.plot(np.log(ip_model / ip_ref), color="darkgreen", label="imperfect")
         else:
-            plt.plot(np.log((p_ref.transpose() / p_model.transpose())), color="blue", label="perfect")
-        plt.plot(np.log(ip_ref/ip_model), color="darkgreen", label="imperfect")
+            plt.plot(np.log(p_ref.transpose() / p_model.transpose()), color="lightblue", label="perfect")
+            plt.plot((np.log(p_ref.transpose() / p_model.transpose())), color="blue", label="perfect")
+            plt.plot(np.log(ip_ref / ip_model), color="darkgreen", label="imperfect")
         plt.xlabel("Time steps")
         plt.ylabel(f"Skill: {metric} [Log]")
         legend_without_duplicate_labels(ax)
@@ -249,8 +251,8 @@ if __name__=="__main__":
     #   p_model, p_ref, ip_model, ip_ref = eval_fsh(m, years=2, state="stable")
 
     simus = 100
-    ms = ["crps"] #, "absolute_differences"
-    states = ["instable"]
+    ms = ["snr"] #, "absolute_differences"
+    states = ["instable", "stable"]
     pathname = f"results/fh_evaluation/"
 
     for m in ms:
@@ -265,11 +267,19 @@ if __name__=="__main__":
 
                 p_model, p_ref, ip_model, ip_ref = eval_fsh(m, years=3, state=s, make_plots=False)
 
-                fhp_l.append(np.argmax(np.log(p_ref.transpose()/p_model.transpose()).mean(axis=1) < 0))
-                fhip_l.append(np.argmax(np.log(ip_ref/ip_model) < 0))
+                if m =="snr":
+                    fhp_l.append(np.argmax(np.log(p_model.transpose()/p_ref.transpose()) < 0))
+                    fhip_l.append(np.argmax(np.log(ip_model/ip_ref) < 0))
 
-                fhp.append(np.argmax((p_ref.transpose()/p_model.transpose()).mean(axis=1) < 1))
-                fhip.append(np.argmax((ip_ref/ip_model) < 1))
+                    fhp.append(np.argmax((p_model.transpose()/p_ref.transpose()) < 1))
+                    fhip.append(np.argmax((ip_model/ip_ref) < 1))
+                else:
+
+                    fhp_l.append(np.argmax(np.log(p_ref.transpose()/p_model.transpose()).mean(axis=1) < 0))
+                    fhip_l.append(np.argmax(np.log(ip_ref/ip_model) < 0))
+
+                    fhp.append(np.argmax((p_ref.transpose()/p_model.transpose()).mean(axis=1) < 1))
+                    fhip.append(np.argmax((ip_ref/ip_model) < 1))
 
             dfs.append(pd.DataFrame([fhp, fhip, fhp_l, fhip_l], index=columns).T)
 
@@ -281,7 +291,7 @@ if __name__=="__main__":
             df["imperfect_l"] = pd.to_numeric(df["imperfect_l"])
 
             os.makedirs('results/fh_evaluation', exist_ok=True)
-            df.to_csv(f"results/fh_evaluation/fsh_simu_{m}.csv", index=False)
+            df.to_csv(f"results/fh_evaluation/fsh_simu_{m}_{s}.csv", index=False)
 
             fig = plt.figure()
             ax = fig.add_subplot()
