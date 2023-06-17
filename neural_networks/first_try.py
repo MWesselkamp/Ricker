@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import preprocessing
 import torch
 import numpy as np
-import models
+import simulations
 
 from torch.utils.data import Dataset
 #%% Data

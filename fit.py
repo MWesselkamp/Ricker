@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.optimize as optim
-import models
+import simulations
 from vizualisations import baseplot
 import utils
 

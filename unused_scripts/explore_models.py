@@ -2,25 +2,23 @@
 import sklearn.metrics
 import numpy as np
 
-import simulations
+from simulations import Simulator
 import matplotlib.pyplot as plt
 from utils import legend_without_duplicate_labels
 import os
 
-sims = simulations.Simulator(model_type="single-species",
-                             simulation_regime="non-chaotic",
-                             environment="non-exogeneous")
-# Set hyperparameters. We'll simulate on a weekly resolution. Years is changed to weeks.
-sims.hyper_parameters(simulated_years=10,
-                           ensemble_size=10,
-                           initial_size=(0.9)) # here we have to give init for both populations
+sims = Simulator(model_type="single-species",
+                regime="non-chaotic",
+                 environment="non-exogeneous",
+                timesteps=10,
+                ensemble_size=10,
+                initial_size=(0.9)) # here we have to give init for both populations
 x = sims.simulate()
 mod = sims.ricker
 derivative = mod.derive(x)
 
 # create simulator object
-import simulations
-sims = simulations.Simulator(model_type="single-species",
+sims = Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="exogeneous")
 # Set hyperparameters. We'll simulate on a weekly resolution. Years is changed to weeks.
@@ -33,7 +31,7 @@ derivative = mod.derive(x_true)
 
 
 # create simulator object
-sims = simulations.Simulator(model_type="multi-species",
+sims = Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
                              environment="exogeneous")
 # Set hyperparameters. We'll simulate on a weekly resolution. Years is changed to weeks.
@@ -44,8 +42,7 @@ x_true = sims.simulate()
 
 
 # create simulator object
-import simulations
-sims = simulations.Simulator(model_type="multi-species",
+sims = Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous")
 # Set hyperparameters. We'll simulate on a weekly resolution. Years is changed to weeks.
@@ -69,7 +66,7 @@ D(1, 0.6, 1, 0.5)
 
 ## Make intoduction plots
 
-obs = simulations.Simulator(model_type="multi-species",
+obs = Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
                              environment="exogeneous", print=False)
 obs.hyper_parameters(simulated_years=1,
@@ -81,7 +78,7 @@ xtrue = obs.ricker.timeseries_true[:,0]
 xtrue2 = obs.ricker.timeseries_true[:,1]
 
 
-sims = simulations.Simulator(model_type="single-species",
+sims = Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous", print=False)
 sims.hyper_parameters(simulated_years=1,
@@ -95,7 +92,7 @@ xpreds = sims.simulate(pars={'theta': None,'sigma': 0.00007,'phi': 0.00000,'init
 #    r_sq.append([sklearn.metrics.r2_score(xobs[:,:j].transpose(), xpreds[i, :j]) for i in range(xpreds.shape[0])])
 #r_sq = np.array(r_sq)
 
-clim = simulations.Simulator(model_type="multi-species",
+clim = Simulator(model_type="multi-species",
                              simulation_regime="non-chaotic",
                              environment="exogeneous", print=False)
 clim.hyper_parameters(simulated_years=50,
@@ -105,7 +102,7 @@ climatology = clim.simulate(pars={'theta': None,'sigma': 0.00009,'phi': 0.0001,'
                     show = False)[:,:,0]
 climatology_today = climatology[:,(climatology.shape[1]-xpreds.shape[1]):]
 
-pathname = f"results/fh_evaluation"
+pathname = f"../results/fh_evaluation"
 
 import numpy as np
 import matplotlib.pylab as pylab
@@ -215,7 +212,7 @@ fig.savefig(os.path.abspath(f"{pathname}/general/perfect_model.pdf"))
 ## INTRO
 
 
-sims = simulations.Simulator(model_type="single-species",
+sims = Simulator(model_type="single-species",
                              simulation_regime="non-chaotic",
                              environment="non-exogeneous", print=False)
 sims.hyper_parameters(simulated_years=1,

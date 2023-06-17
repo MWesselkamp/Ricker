@@ -1,5 +1,56 @@
-import matplotlib.pyplot as plt
 import numpy as np
+from simulations import Simulator
+
+def lyapunovs(timeseries_derivative, stepwise = False):
+    """
+    Calcuclate Lyapunov exponent of time series at iteration limit or stepwise.
+    :param timeseries_derivative: ndarray. Shape: (ensemble_size, iterations)
+    :param stepwise: stepwise or at limit.
+    :return: either vector or matrix of lyapunov exponents.
+    """
+    if stepwise:
+        ts_logabs = np.log(abs(timeseries_derivative))
+        lyapunovs = np.array([np.mean(ts_logabs[:,1:i], axis=1) for i in range(ts_logabs.shape[1])])
+    else:
+        lyapunovs = np.mean(np.log(abs(timeseries_derivative)), axis=1)
+    return lyapunovs
+
+def efh_lyapunov(lyapunovs, Delta, delta, fix=False):
+    """
+    Calculate the forecast horizon with the Lyapunov time (Petchey 2015).
+    :param lyapunovs:
+    :param Delta: Accuracy/Precision threshold
+    :param delta: Accuracy at inital conditions
+    :return: EFH
+    """
+    # np.multiply.outer(1/lyapunovs,np.log(precision/dell0))
+    if fix:
+        return np.multiply(1 / lyapunovs, np.log(fix))
+    else:
+        return np.multiply(1/lyapunovs,np.log(Delta/delta))
+
+# Create predictions and observations
+def generate_data(timesteps=50, growth_rate = 0.05,
+                  sigma = 0.00, phi = 0.00, initial_uncertainty = 0.00,
+                  doy_0 = 0, initial_size=1, ensemble_size = 10, environment = "exogeneous"):
+
+    sims = Simulator(model_type="single-species",
+                     environment=environment,
+                     growth_rate=growth_rate,
+                     timesteps=timesteps,
+                     ensemble_size=ensemble_size,
+                     initial_size=initial_size)
+    xpreds = sims.simulate(sigma= sigma,phi= phi,initial_uncertainty=initial_uncertainty, doy_0 = doy_0)['ts_obs']
+
+    obs = Simulator(model_type="multi-species",
+                    environment=environment,
+                    growth_rate=growth_rate,
+                    timesteps=timesteps,
+                    ensemble_size=1,
+                    initial_size=(initial_size, initial_size))
+    xobs = obs.simulate(sigma= sigma,phi= phi,initial_uncertainty=initial_uncertainty, doy_0 = doy_0)['ts_obs']
+
+    return xpreds, xobs
 
 def create_quantiles(n, max):
     u = 0.5 + np.linspace(0, max, n+1)
@@ -18,33 +69,6 @@ def fixed_Tp_Delta(lyapunovs, Tp, delta):
 def fixed_Tp_delta(lyapunovs, Tp, Delta):
     Tp_delta = np.array([Delta/np.exp(lya*Tp) for lya in lyapunovs])
     return Tp_delta
-
-def simulate_T(len, add_trend = False, add_noise = False, show=True):
-
-    x = np.arange(len)
-    freq = len/52
-    y = np.sin(2 * np.pi * freq * (x / len))
-
-    if add_trend:
-        t = np.linspace(0,0.5,len)
-        y = y+t
-
-    if add_noise:
-        y = np.random.normal(y, 0.1)
-
-    y = np.round(y, 4)
-
-    if show:
-        fig = plt.figure()
-        ax = fig.add_subplot()
-        plt.stem(x, y, 'r')
-        plt.plot(x, y)
-        ax.set_xlabel('Time step t', size=14)
-        ax.set_ylabel('Simulated temperature', size=14)
-        fig.show()
-
-    return y
-
 
 def legend_without_duplicate_labels(ax):
     handles, labels = ax.get_legend_handles_labels()

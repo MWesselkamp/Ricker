@@ -1,31 +1,9 @@
 from scipy.stats import ttest_ind
-import simulations
+from simulations import Simulator
 import matplotlib.pyplot as plt
 import numpy as np
 import os
-from utils import legend_without_duplicate_labels
-
-# Create predictions and observations
-def generate_data(years = 2, phi_preds = 0.0001):
-    sims = simulations.Simulator(model_type="single-species",
-                             simulation_regime="non-chaotic",
-                             environment="non-exogeneous", print=False)
-    sims.hyper_parameters(simulated_years=years,
-                           ensemble_size=10,
-                           initial_size=0.98)
-    xpreds = sims.simulate(pars={'theta': None,'sigma': 0.00,'phi': phi_preds,'initial_uncertainty': 1e-3},
-                           show = False)
-
-    obs = simulations.Simulator(model_type="multi-species",
-                             simulation_regime="non-chaotic",
-                             environment="exogeneous", print=False)
-    obs.hyper_parameters(simulated_years=years,
-                    ensemble_size=1,
-                    initial_size=(0.98, 0.98))
-    xobs = obs.simulate(pars={'theta': None,'sigma': 0.0001,'phi': 0.0003,'initial_uncertainty': 1e-3},
-                        show = False)[:,:,0]
-
-    return xpreds, xobs
+from utils import legend_without_duplicate_labels, generate_data
 
 def calculate_tstats(xobs, xpreds):
     tstats = np.zeros((xpreds.shape[0], xpreds.shape[1]))
@@ -37,8 +15,7 @@ def calculate_tstats(xobs, xpreds):
                 pvalues[j, i] = ttest_results.pvalue
     return tstats, pvalues
 
-
-xpreds, xobs = generate_data(years = 5)
+xpreds, xobs = generate_data(timesteps= 500)
 
 frameworks = ["imperfect", "perfect"]
 pathname = f"results/fh_evaluation/"

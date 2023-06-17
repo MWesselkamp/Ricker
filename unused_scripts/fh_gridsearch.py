@@ -1,6 +1,6 @@
 import sys
 sys.path.append('../Ricker')
-import models
+import simulations
 import numpy as np
 from scipy.stats import pearsonr, ttest_ind
 from sklearn.metrics import r2_score

@@ -6,13 +6,15 @@ def baseplot(x1, x2=None, x3 = None, transpose=False, xlab=None, ylab=None):
         x1 = np.transpose(x1)
         if not x2 is None:
             x2 = np.transpose(x2)
+        if not x3 is None:
+            x3 = np.transpose(x3)
     fig = plt.figure()
     ax = fig.add_subplot()
-    ax.plot(x1, alpha=0.3, color="blue")
+    ax.plot(x1, alpha=0.5, color="blue")
     if not x2 is None:
-        ax.plot(x2, alpha=0.3, color="red")
+        ax.plot(x2, alpha=0.5, color="red")
     if not x3 is None:
-        ax.plot(x3, alpha=0.3, color="green")
+        ax.plot(x3, alpha=0.5, color="green")
     ax.set_xlabel(xlab, size=14)
     ax.set_ylabel(ylab, size=14)
     fig.show()

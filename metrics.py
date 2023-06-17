@@ -3,6 +3,7 @@ import scipy.special as special
 import math
 from scipy.stats import pearsonr
 import sklearn.metrics
+import CRPS.CRPS as pscore
 
 def absolute_differences(reference, ensemble, mean = False):
     absolute_differences = abs(np.subtract(reference, ensemble))
@@ -67,6 +68,12 @@ def rolling_corrs(reference, ensemble, window = 3, abs = False):
     else:
         return corrs
 
+
+def rolling_crps(reference, ensemble):
+    """
+    """
+    crps = np.array([pscore(ensemble[:,i], reference[:,i]).compute() for i in range(reference.shape[1])]).squeeze()
+    return crps
 
 def rolling_rsquared(reference, ensemble):
 
