@@ -1,5 +1,5 @@
 import modelclass
-import vizualisations
+import visualisations
 import numpy as np
 
 # Set hyperparameters.

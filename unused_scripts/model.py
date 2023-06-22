@@ -1,5 +1,5 @@
-from vizualisations import plot_posterior
-from vizualisations import plot_trajectories
+from visualisations import plot_posterior
+from visualisations import plot_trajectories
 import pickle
 import numpy as np
 

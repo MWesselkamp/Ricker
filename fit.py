@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.optimize as optim
 import simulations
-from vizualisations import baseplot
+from visualisations import baseplot
 import utils
 
 # function to minimize: Residuals

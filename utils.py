@@ -1,5 +1,5 @@
 import numpy as np
-from simulations import Simulator
+from simulations import Simulator, simulate_temperature
 
 def lyapunovs(timeseries_derivative, stepwise = False):
     """
@@ -32,25 +32,30 @@ def efh_lyapunov(lyapunovs, Delta, delta, fix=False):
 # Create predictions and observations
 def generate_data(timesteps=50, growth_rate = 0.05,
                   sigma = 0.00, phi = 0.00, initial_uncertainty = 0.00,
-                  doy_0 = 0, initial_size=1, ensemble_size = 10, environment = "exogeneous"):
+                  doy_0 = 0, initial_size=1, ensemble_size = 10, environment = "exogeneous",
+                  add_trend=False, add_noise=False):
 
     sims = Simulator(model_type="single-species",
                      environment=environment,
                      growth_rate=growth_rate,
-                     timesteps=timesteps,
                      ensemble_size=ensemble_size,
                      initial_size=initial_size)
-    xpreds = sims.simulate(sigma= sigma,phi= phi,initial_uncertainty=initial_uncertainty, doy_0 = doy_0)['ts_obs']
+    exogeneous = simulate_temperature(365+timesteps, add_trend = add_trend, add_noise = add_noise)
+    exogeneous = exogeneous[365+doy_0:]
+    xpreds = sims.simulate(sigma= sigma,phi= phi,initial_uncertainty=initial_uncertainty, exogeneous = exogeneous)['ts_obs']
 
     obs = Simulator(model_type="multi-species",
                     environment=environment,
                     growth_rate=growth_rate,
-                    timesteps=timesteps,
                     ensemble_size=1,
                     initial_size=(initial_size, initial_size))
-    xobs = obs.simulate(sigma= sigma,phi= phi,initial_uncertainty=initial_uncertainty, doy_0 = doy_0)['ts_obs']
+    exogeneous = simulate_temperature(365+timesteps, add_trend = add_trend, add_noise = add_noise)
+    exogeneous = exogeneous[365+doy_0:]
+    xobs = obs.simulate(sigma= sigma,phi= phi,initial_uncertainty=initial_uncertainty, exogeneous = exogeneous)['ts_obs']
 
     return xpreds, xobs
+
+generate_data()
 
 def create_quantiles(n, max):
     u = 0.5 + np.linspace(0, max, n+1)

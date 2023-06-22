@@ -73,7 +73,8 @@ def rolling_crps(reference, ensemble):
     """
     """
     crps = np.array([pscore(ensemble[:,i], reference[:,i]).compute() for i in range(reference.shape[1])]).squeeze()
-    return crps
+
+    return crps[:,0]     # return only the basic crps (p-score returns three crps types)
 
 def rolling_rsquared(reference, ensemble):
 

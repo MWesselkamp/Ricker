@@ -1,7 +1,7 @@
 import dynamics
 import simulations
 import utils
-import vizualisations
+import visualisations
 import forecast_ensemble
 import numpy as np
 import matplotlib.pyplot as plt

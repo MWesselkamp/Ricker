@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neighbors import KernelDensity
 import simulations
-from vizualisations import baseplot
+from visualisations import baseplot
 # For calculation of permutation entropy
 import scipy.stats as ss
 from collections import Counter

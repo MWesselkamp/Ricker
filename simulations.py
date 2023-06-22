@@ -258,12 +258,11 @@ class Ricker_Multi_T(Model):
 
 class Simulator:
 
-    def __init__(self, model_type, growth_rate, environment, timesteps, ensemble_size,initial_size):
+    def __init__(self, model_type, growth_rate, environment, ensemble_size,initial_size):
 
         self.meta = {'model_type': model_type,
                      'growth_rate': growth_rate,
                      'environment': environment,
-                     "iterations": timesteps,
                      "initial_size": initial_size,
                     "ensemble_size": ensemble_size,
                     'hyper_parameters':None,
@@ -271,27 +270,12 @@ class Simulator:
 
         self.growth_rate = growth_rate
 
-    def simulate_temperature(self, timesteps, doy_0, add_trend=False, add_noise=False):
+    def simulate(self, sigma = 0, phi = 0, initial_uncertainty = 0, exogeneous=None):
 
-        x = np.arange(timesteps+doy_0)
-        freq = timesteps / 365
-        y = np.sin(2 * np.pi * freq * (x / timesteps))
-
-        if add_trend:
-            y = y + np.linspace(0, 0.5, timesteps)
-
-        if add_noise:
-            y = np.random.normal(y, 0.2)
-        y = np.round(y, 4)[doy_0:]
-
-        return y
-
-    def simulate(self, sigma = 0, phi = 0, initial_uncertainty = 0, doy_0 = 0):
-
-        if self.meta['environment'] == "exogeneous":
-            self.temperature = self.simulate_temperature(self.meta['iterations'], doy_0 = doy_0, add_trend=False, add_noise=False)
+        if not exogeneous is None:
+            self.meta['iterations'] = len(exogeneous)
         else:
-            self.temperature = None
+            self.meta['iterations'] = 365
 
         if (self.meta['model_type'] == "single-species") & (self.meta['environment']  == "non-exogeneous"):
             self.ricker = Ricker_Single()
@@ -319,13 +303,13 @@ class Simulator:
         simu = self.ricker.simulate(self.meta["iterations"],
                                     self.meta["initial_size"],
                                     self.meta["ensemble_size"],
-                                    ex=self.temperature)
+                                    ex=exogeneous)
 
         self.meta['theta'] = {'theta':theta}
 
         return simu
 
-    def forecast(self, timesteps, observations = None):
+    def forecast(self, timesteps, observations = None, exogeneous = None):
 
         if not observations is None:
             analysis_distribution = np.random.normal(observations[:,-1], self.ricker.sigma, self.meta['ensemble_size'])
@@ -335,9 +319,23 @@ class Simulator:
         self.meta['initial_size'] = analysis_distribution
         self.meta['iterations'] = timesteps
 
-        T_pred = self.simulate_temperature(self.meta['iterations'], add_trend=False, add_noise=True, show=False)
-
         self.forecast_simulation = self.ricker.simulate(self.meta["iterations"],
                                     self.meta["initial_size"],
                                     self.meta["ensemble_size"],
-                                    ex=T_pred)
+                                    ex=exogeneous)
+
+
+def simulate_temperature(timesteps, add_trend=False, add_noise=False):
+
+    x = np.arange(timesteps)
+    freq = timesteps / 365
+    y = np.sin(2 * np.pi * freq * (x / timesteps))
+
+    if add_trend:
+        y = y + np.linspace(0, 0.1, timesteps)
+
+    if add_noise:
+        y = np.random.normal(y, 0.2)
+    y = np.round(y, 4)
+
+    return y

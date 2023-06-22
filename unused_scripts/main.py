@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 matplotlib.use('module://backend_interagg')
 
-import vizualisations
+import visualisations
 import utils
 from code_graveyard import model
 import fit
