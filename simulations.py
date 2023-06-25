@@ -339,3 +339,28 @@ def simulate_temperature(timesteps, add_trend=False, add_noise=False):
     y = np.round(y, 4)
 
     return y
+
+def generate_data(timesteps=50, growth_rate = 0.05,
+                  sigma = 0.00, phi = 0.00, initial_uncertainty = 0.00,
+                  doy_0 = 0, initial_size=1, ensemble_size = 10, environment = "exogeneous",
+                  add_trend=False, add_noise=False):
+
+    sims = Simulator(model_type="single-species",
+                     environment=environment,
+                     growth_rate=growth_rate,
+                     ensemble_size=ensemble_size,
+                     initial_size=initial_size)
+    exogeneous = simulate_temperature(365+timesteps, add_trend = add_trend, add_noise = add_noise)
+    exogeneous = exogeneous[365+doy_0:]
+    xpreds = sims.simulate(sigma= sigma,phi= phi,initial_uncertainty=initial_uncertainty, exogeneous = exogeneous)['ts_obs']
+
+    obs = Simulator(model_type="multi-species",
+                    environment=environment,
+                    growth_rate=growth_rate,
+                    ensemble_size=1,
+                    initial_size=(initial_size, initial_size))
+    exogeneous = simulate_temperature(365+timesteps, add_trend = add_trend, add_noise = add_noise)
+    exogeneous = exogeneous[365+doy_0:]
+    xobs = obs.simulate(sigma= sigma,phi= phi,initial_uncertainty=initial_uncertainty, exogeneous = exogeneous)['ts_obs']
+
+    return xpreds, xobs

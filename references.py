@@ -25,31 +25,36 @@ def climatology(observations, predictions = None):
         sh = observations.shape
         return np.full(sh, hmean)
 
-def diurnal_climatology(growth_rate=0.1, days=365, years=5,
+def diurnal_climatology(scenario = "perfect_model", growth_rate=0.1, days=365, years=10,
                         sigma = 0.00, phi = 0.00, initial_uncertainty = 0.00,
                         add_trend=False, add_noise = False):
-
-    obs = Simulator(model_type="multi-species",
+    if scenario =='perfect_model':
+        obs = Simulator(model_type="single-species",
+                            environment='exogeneous',
+                            growth_rate=growth_rate,
+                            ensemble_size=1,
+                            initial_size=1)
+    elif scenario == 'imperfect_model':
+        obs = Simulator(model_type="multi-species",
                         environment='exogeneous',
                         growth_rate=growth_rate,
                         ensemble_size=1,
                         initial_size=(1, 1))
-    exogeneous = simulate_temperature(days*(years+1), add_trend=add_trend, add_noise=add_noise)
-    xobss = []
-    for i in range(365):
-        exo = exogeneous[i:]
-        xobs = obs.simulate(sigma=sigma, phi=phi, initial_uncertainty=initial_uncertainty, exogeneous=exo)[
+    exogeneous = simulate_temperature(days*(years), add_trend=add_trend, add_noise=add_noise)
+    xobs = obs.simulate(sigma=sigma, phi=phi, initial_uncertainty=initial_uncertainty, exogeneous=exogeneous)[
             'ts_obs']
-        xobss.append(xobs.squeeze()[(365-i):, 0])
-    xobs = np.array(xobss)
+    if scenario =='perfect_model':
+        xobs = xobs.squeeze()
+    elif scenario == 'imperfect_model':
+        xobs = xobs[:,:,0].squeeze()
 
     unique_values = np.arange(days)
     year = np.tile(unique_values, reps=years)
-    aggregated_data = np.zeros((365, days, years))
+    aggregated_data = np.zeros((days, years))
 
     for i, value in enumerate(unique_values):
         mask = (year == value)
-        aggregated_data[:,i, :] = xobs[:,mask] # Aggregate observations by day
+        aggregated_data[i,:] = xobs[mask] # Aggregate observations by day
 
     return aggregated_data
 
