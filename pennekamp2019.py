@@ -1,39 +1,22 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.neighbors import KernelDensity
-import simulations
-from visualisations import baseplot
-# For calculation of permutation entropy
 import scipy.stats as ss
+
+from sklearn.neighbors import KernelDensity
 from collections import Counter
 from math import factorial
+from visualisations import baseplot
+from simulations import generate_data
+from references import diurnal_climatology
 
-# So what distributions, if not discrete empirical distributions?
-# Lets use a stepwise Kernel Density Estimation.
-sims = simulations.Simulator(model_type="single-species",
-                             simulation_regime="non-chaotic",
-                             environment="non-exogeneous", print=False)
-sims.hyper_parameters(simulated_years=2,
-                           ensemble_size=15,
-                           initial_size=0.99)
-x = sims.simulate(pars={'theta': None,'sigma': 0.00,'phi': 0.0001,'initial_uncertainty': 1e-4},
-                           show = False)
+x_clim = diurnal_climatology(scenario = 'imperfect', growth_rate=0.1, sigma=0.001, initial_uncertainty=0.00, add_trend=True,
+                        add_noise=False)  # create climatology
+x_pred, xobs = generate_data(timesteps=365, growth_rate=0.1,
+                            sigma=0.001, phi=0.00, initial_uncertainty=0.00,
+                            doy_0=0, ensemble_size=15,
+                            environment='exogeneous')  # create simulations
+x = xobs[:, :, 0]  # observations
 
-clim = simulations.Simulator(model_type="single-species",
-                             simulation_regime="non-chaotic",
-                             environment="non-exogeneous", print=False)
-clim.hyper_parameters(simulated_years=100,
-                           ensemble_size=15,
-                           initial_size=0.99)
-climatology = clim.simulate(pars={'theta': None,'sigma': 0.00,'phi': 0.0001,'initial_uncertainty': 1e-4},
-                           show = False)
-climatology_today = climatology[:,(climatology.shape[1]-x.shape[1]):]
-
-x_pred, x_clim = np.split(x, 2, axis=1)
-
-baseplot(x_clim, x_pred,transpose=True,
-         xlab='Time steps (Generation)',
-         ylab='Population size')
 
 ys = np.concatenate(x_clim)
 kde = KernelDensity(kernel='gaussian', bandwidth=.8).fit(ys[:, np.newaxis])  # the higher the bandwidth the smoother

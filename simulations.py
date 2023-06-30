@@ -340,9 +340,9 @@ def simulate_temperature(timesteps, add_trend=False, add_noise=False):
 
     return y
 
-def generate_data(timesteps=50, growth_rate = 0.05,
+def generate_data(timesteps, growth_rate = 0.05,
                   sigma = 0.00, phi = 0.00, initial_uncertainty = 0.00,
-                  doy_0 = 0, initial_size=1, ensemble_size = 10, environment = "exogeneous",
+                  doy_0 = 0, initial_size=1, ensemble_size = 1, environment = "exogeneous",
                   add_trend=False, add_noise=False):
 
     sims = Simulator(model_type="single-species",

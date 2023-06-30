@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.special as special
 import math
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, norm, entropy, ttest_ind
 import sklearn.metrics
 import CRPS.CRPS as pscore
 
@@ -95,6 +95,62 @@ def mse(reference, ensemble):
     mse = np.mean(np.subtract(reference, ensemble)**2, axis=0)
     return mse
 
+def squared_error_SNR(obs, pred):
+    """
+    The squared error based SNR, an estimator of the true expected SNR. (Czanner et al. 2015, PNAS)
+    The signal is the reduction in expected prediction error by using the model that generated pred.
+    Independent of sample size!
+    """
+
+    EPE_mean = np.dot(np.transpose(obs - np.mean(obs)), (obs - np.mean(obs))) # returns a scalar
+    EPE_model = np.dot(np.transpose(obs - pred), (obs - pred)) # also returns a scalar
+    signal = (EPE_mean - EPE_model)
+    noise = EPE_model
+
+    return signal/noise
+
+
+def var_based_SNR(obs, pred, inital_uncertainty):
+    """
+    The squared error based SNR, an estimator of the true expected SNR at perfect knowledge of parameters.
+    The signal is the reduction in expected prediction error by using the model that generated pred.
+    Dependent on sample size (decreases with sample size)
+
+    # This may be more suited for the perfect model scenario
+    # but I am not going to use it until I am sure of what the individual parts are
+    """
+    signal = np.dot(np.transpose(pred - np.mean(obs)), (pred - np.mean(obs)))
+    noise = len(obs) * inital_uncertainty ** 2
+
+    return signal / noise
+
+def raw_SNR(pred, var = False):
+    # tSNR raw SNR or timeseries SNR: mean(timeseries) / var(timeseries)
+    # tsnr increases with sample size (see sd).
+
+    signal = np.mean(pred, axis=1)
+    if var:
+        noise = np.mean(pred**2, axis=1) - np.mean(pred, axis=1)**2 # np.std(pred, axis=1)#1/pred.shape[0]*np.sum(np.subtract(pred, mu)**2, axis=0)
+    else:
+        noise = np.std(pred,axis=1)
+
+    return signal/noise
+
+def raw_CNR(obs, pred, squared = False):
+    """
+    CNR - contrast to noise ratio: mean(condition-baseline) / std(baseline)
+    This is basically the same as the square-error-based SNR?
+    Transfered, we have the model as the baseline and the mean as condition.
+    tsnr increases with sample size (see sd).
+    """
+    signal = np.mean((pred - np.mean(obs))) # returns a scalar
+    noise = np.std(obs)
+    if squared:
+        return signal**2/noise**2, signal**2, noise**2
+    else:
+        return signal/noise, signal, noise
+
+
 def rolling_CNR(obs, pred, squared = False):
     """
     CNR - contrast to noise ratio: mean(condition-baseline) / std(baseline)
@@ -114,8 +170,27 @@ def rolling_CNR(obs, pred, squared = False):
 
     return np.transpose(np.array(cnrs))
 
+def bs_sampling(obs, pred, snr, samples=100):
 
-def t_statistic(x_sample, H0):
+    its = obs.shape[1]
+    arr = np.zeros((its, samples))
+
+    for j in range(samples):
+
+        obs_ind, pred_ind = np.random.randint(obs.shape[0], size=1), np.random.randint(pred.shape[0], size=1)
+        x_obs = obs[obs_ind].flatten()
+        x_pred = pred[pred_ind].flatten()
+
+        for i in range(its):
+
+            if snr == "cnr":
+                arr[i, j] = raw_CNR(x_obs[:i + 2], x_pred[:i + 2])[0]
+            elif snr == "ss-snr":
+                arr[i, j] = squared_error_SNR(x_obs[:i + 2], x_pred[:i + 2])
+
+    return arr
+
+def tstatistic_manual(x_sample, H0):
     """
     Student's t-test. Two-sided.
     """
@@ -126,3 +201,49 @@ def t_statistic(x_sample, H0):
     pval = special.stdtr(df, -np.abs(t))*2
     return t, pval
 
+def tstatistic_scipy(x, y):
+    """
+    Computes tstatistics between two sets. Returns t-statistics and p-values.
+    :param x: np array
+    :param y: np array
+    :return: tstats, pvalues
+    """
+    ttest_results = ttest_ind(x.flatten(), y.flatten(), equal_var=False)
+    tstats = ttest_results.statistic
+    pvalues = ttest_results.pvalue
+
+    return tstats, pvalues
+
+def entropy_manual(p, q, integral = True):
+    """
+
+    :param p:
+    :param q:
+    :param integral:
+    :return:
+    """
+    prob_frac = np.round(p/q, 50)
+    prob_frac[prob_frac == 0] = 1e-50
+    RE = np.sum(p*np.log(prob_frac)) if integral else p*np.log(prob_frac)
+    return RE
+
+def entropy(x, y):
+
+    """
+    Computes relative entropy between two sets, x and y.
+    X and y are assumed normal, i.e. mean and std are fitted to generate probablity density function.
+    :param x: np array
+    :param y: np array
+    :return: entropy as in scipy.stats.
+    """
+    mu, std = norm.fit(x.flatten())
+    xmin, xmax = x.min(), x.max()
+    x = np.linspace(xmin, xmax, 100)
+    p = norm.pdf(x, mu, std)
+
+    mu, std = norm.fit(y.flatten())
+    ymin, ymax = y.min(), y.max()
+    y = np.linspace(ymin, ymax, 100)
+    q = norm.pdf(y, mu, std)
+
+    return entropy(p, q)
