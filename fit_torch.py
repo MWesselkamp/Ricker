@@ -99,19 +99,34 @@ class Ricker_Predation(nn.Module):
      describing the dynamics of two species interacting in a predator-prey relationship.
     """
 
-    def __init__(self, params):
+    def __init__(self, params, noise):
         super().__init__()
-        self.model_params = torch.nn.Parameter(torch.tensor(params, requires_grad=True, dtype=torch.double))
+        if not noise is None:
+            self.model_params = torch.nn.Parameter(torch.tensor(params+noise, requires_grad=True, dtype=torch.double))
+        else:
+            self.model_params = torch.nn.Parameter(torch.tensor(params, requires_grad=True, dtype=torch.double))
+            self.noise = noise
 
     def forward(self, Temp):
 
-        alpha1, beta1, gamma1, bx1, cx1, alpha2, beta2, gamma2, bx2, cx2 = self.model_params
+        if not self.noise is None:
+            alpha1, beta1, gamma1, bx1, cx1, alpha2, beta2, gamma2, bx2, cx2, sigma = self.model_params
+        else:
+            alpha1, beta1, gamma1, bx1, cx1, alpha2, beta2, gamma2, bx2, cx2 = self.model_params
 
         Temp = Temp.squeeze()
         out = torch.ones((2,len(Temp)), dtype=torch.double)
-        for i in range(len(Temp) - 1):
-            out[0, i + 1] = out.clone()[0, i] * torch.exp(alpha1*(1 - beta1*out.clone()[0, i] - gamma1*out.clone()[1, i] + bx1 * Temp[i] + cx1 * Temp[i]**2))
-            out[1, i + 1] = out.clone()[1, i] * torch.exp(alpha2*(1 - beta2*out.clone()[1, i] - gamma2*out.clone()[0, i] + bx2 * Temp[i] + cx2 * Temp[i]**2))
+
+        if not self.noise is None:
+            for i in range(len(Temp) - 1):
+                out[0, i + 1] = out.clone()[0, i] * torch.exp(alpha1*(1 - beta1*out.clone()[0, i] - gamma1*out.clone()[1, i] + bx1 * Temp[i] + cx1 * Temp[i]**2)) \
+                                + sigma*torch.normal(mean=torch.tensor([0.0,]), std=torch.tensor([1.0]))
+                out[1, i + 1] = out.clone()[1, i] * torch.exp(alpha2*(1 - beta2*out.clone()[1, i] - gamma2*out.clone()[0, i] + bx2 * Temp[i] + cx2 * Temp[i]**2)) \
+                                + sigma*torch.normal(mean=torch.tensor([0.0,]), std=torch.tensor([1.0]))
+        else:
+            for i in range(len(Temp) - 1):
+                out[0, i + 1] = out.clone()[0, i] * torch.exp(alpha1*(1 - beta1*out.clone()[0, i] - gamma1*out.clone()[1, i] + bx1 * Temp[i] + cx1 * Temp[i]**2))
+                out[1, i + 1] = out.clone()[1, i] * torch.exp(alpha2*(1 - beta2*out.clone()[1, i] - gamma2*out.clone()[0, i] + bx2 * Temp[i] + cx2 * Temp[i]**2))
 
         return out
 
@@ -125,7 +140,8 @@ class Ricker_Predation(nn.Module):
         beta2: {self.model_params[6].item()}, \
                     gamma2: {self.model_params[7].item()}, \
                         bx2: {self.model_params[8].item()}, \
-                    cx2: {self.model_params[9].item()}"
+                    cx2: {self.model_params[9].item()},\
+               sigma:{self.noise} "
 
 
 class Ricker(nn.Module):
@@ -134,27 +150,44 @@ class Ricker(nn.Module):
      describing the dynamics of two species interacting in a predator-prey relationship.
     """
 
-    def __init__(self, params):
+    def __init__(self, params, noise=None):
 
         super().__init__()
-        self.model_params = torch.nn.Parameter(torch.tensor(params, requires_grad=True, dtype=torch.double))
+
+        if not noise is None:
+            self.model_params = torch.nn.Parameter(torch.tensor(params+noise, requires_grad=True, dtype=torch.double))
+            self.noise = noise
+        else:
+            self.model_params = torch.nn.Parameter(torch.tensor(params, requires_grad=True, dtype=torch.double))
+            self.noise = None
 
     def forward(self, N0, Temp):
 
-        alpha, beta, bx, cx = self.model_params
+        if not self.noise is None:
+            alpha, beta, bx, cx, sigma = self.model_params
+        else:
+            alpha, beta, bx, cx = self.model_params
 
         Temp = Temp.squeeze()
         out = torch.zeros_like(Temp, dtype=torch.double)
-        out[0] = N0
-        for i in range(len(Temp)-1):
-            out[i+1] = (out.clone()[i] * torch.exp(alpha * (1 - beta * out.clone()[i] + bx * Temp[i] + cx * Temp[i] ** 2)))
+        out[0] = N0 # initial value
+
+        if not self.noise is None:
+            for i in range(len(Temp)-1):
+                out[i+1] = out.clone()[i] * torch.exp(alpha * (1 - beta * out.clone()[i] + bx * Temp[i] + cx * Temp[i] ** 2)) \
+                           + sigma*torch.normal(mean=torch.tensor([0.0,]), std=torch.tensor([1.0]))
+        else:
+            for i in range(len(Temp)-1):
+                out[i+1] = out.clone()[i] * torch.exp(alpha * (1 - beta * out.clone()[i] + bx * Temp[i] + cx * Temp[i] ** 2))
+
         return out
 
     def __repr__(self):
         return f" alpha: {self.model_params[0].item()}, \
             beta: {self.model_params[1].item()}, \
                 bx: {self.model_params[2].item()}, \
-                    cx: {self.model_params[3].item()}"
+                    cx: {self.model_params[3].item()}, \
+               sigma: {self.noise}"
 
 
 class SimODEData(Dataset):
@@ -177,40 +210,60 @@ class SimODEData(Dataset):
     def __getitem__(self, index: int): #  -> Tuple[torch.Tensor, torch.Tensor]
         return self.y[index:index+self.step_length], self.temp[index:index+self.step_length]
 
+def my_custom_loss(outputs, labels):
+
+    loss = torch.mean(torch.abs(outputs - labels))
+    return loss
+
 timesteps = 365
 temperature = simulate_temperature(timesteps=timesteps)
-plt.plot(temperature)
-observation_params = [0.98, 1, 0.021, 0.96, 1.05, 0.96,  1, 0.02, 0.97, 1.06]
-observation_model = Ricker_Predation(params = observation_params)
+observation_params = [0.18, 1, 0.021, 0.96, 1.05, 0.16,  1, 0.02, 0.97, 1.06]
+noise = [0., 0]
+observation_model = Ricker_Predation(params = observation_params, noise = None)
 dyn_obs = observation_model(Temp = temperature)
 y = dyn_obs[0,:].clone().detach().requires_grad_(True)
+plt.plot(y.detach().numpy())
 
 data = SimODEData(step_length=10, y = y, temp=temperature)
 trainloader = DataLoader(data, batch_size=1, shuffle=True, drop_last=True)
 
 initial_params = [0.15, 0.95, 0.05, 0.05]
+noise = [0.01]
+model = Ricker(params=initial_params, noise = None)
 
-model = Ricker(params=initial_params)
 optimizer = torch.optim.Adam([{'params':model.model_params}], lr=0.001)
-criterion = torch.nn.MSELoss()
+mse_criterion = torch.nn.MSELoss()
+kl_criterion = torch.nn.KLDivLoss(reduction='batchmean')
 
 losses = []
-for epoch in range(20):
+for epoch in range(5):
     for batch in trainloader:
         target, temp = batch
         initial_state = target.clone()[:,0]
         optimizer.zero_grad()
-        #output = ricker(initial_state, temp, weights)
         output = model(initial_state, temp)
-        loss = criterion(output, target.squeeze())
-        loss.backward()
-        #guesses.append(weights.clone())
-        losses.append(loss.clone())
-        optimizer.step() # %time is jupyter timing magic - remove it to run this outside ipython
+        #mse_loss = mse_criterion(output, target.squeeze())
+        mse_loss = my_custom_loss(output, target.squeeze())
+        #kl_loss = kl_criterion(output, target.squeeze())
+        mse_loss.backward()
+        #kl_loss.backward()
+        losses.append(mse_loss.clone())
+        optimizer.step()
 
 plt.plot(losses)
 print(model)
 
-# Wall time: 683 ms
-# Minimum: [0.8001920580863953, 0.4998912513256073, -1.4998143911361694, 0.9999790787696838, 2.0001237392425537, 0.00012422756117302924, 2.9998154640197754, 0.4000047743320465, 1.7999995946884155]
-# Number of steps: 256
+
+#===============#
+# Fit with CPRS #
+#===============#
+
+xsim, xobs = generate_data(timesteps=150, growth_rate=0.1,
+                                           sigma=0.01, phi=0.00, initial_uncertainty=0.001,
+                                           doy_0=0, ensemble_size=15)
+
+xsim = torch.tensor(xsim)
+xobs = torch.tensor(xobs[:,:,0])
+
+crps = CRPS(xsim[:,0], xobs[:,0])
+crps.compute()
