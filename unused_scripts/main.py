@@ -3,10 +3,8 @@ import matplotlib.pyplot as plt
 
 matplotlib.use('module://backend_interagg')
 
-import visualisations
 import utils
 from code_graveyard import model
-import fit
 import dynamics
 import numpy as np
 

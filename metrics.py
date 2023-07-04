@@ -72,9 +72,15 @@ def rolling_corrs(reference, ensemble, window = 3, abs = False):
 def rolling_crps(reference, ensemble):
     """
     """
-    crps = np.array([pscore(ensemble[:,i], reference[:,i]).compute() for i in range(reference.shape[1])]).squeeze()
+    if len(ensemble.shape) == 1:
+        ensemble = np.expand_dims(ensemble, 0)
 
-    return crps[:,0]     # return only the basic crps (p-score returns three crps types)
+    crps = np.array([pscore(ensemble[:,i], reference[:,i]).compute() for i in range(reference.shape[1])]).squeeze()
+    crps = crps[:,0]
+    if crps.dtype != 'float32':
+        crps = crps.astype('float32')
+
+    return crps  # return only the basic crps (p-score returns three crps types)
 
 def rolling_rsquared(reference, ensemble):
 

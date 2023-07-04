@@ -29,7 +29,7 @@ def metric_map_intrinsic(growth_rates, timesteps, doy_inits, metric, bootstrap_s
             bs_qualities = []
             for bs in range(bootstrap_samples):
                 xsim, xobs = generate_data(timesteps=timesteps, growth_rate=r,
-                                           sigma=s, phi=0.00, initial_uncertainty=0.00,
+                                           sigma=s, phi=0.00, initial_uncertainty=0.001,
                                            doy_0=doy, ensemble_size=15)
                 # replace observation by sample from forecast ensemble
                 xobs, xsim, index = sample_ensemble_member(xsim)
@@ -39,7 +39,9 @@ def metric_map_intrinsic(growth_rates, timesteps, doy_inits, metric, bootstrap_s
 
                 if metric == 'deterministic':
                     #quality = np.mean(rolling_corrs(xobs_leads, xsim_leads), axis=0)
-                    quality = np.mean(abs(np.subtract(xobs_leads, xsim_leads)), axis=0)
+                    #quality = np.mean(abs(np.subtract(xobs_leads, xsim_leads)), axis=0)
+                    xsim_leads = np.mean(xsim_leads, axis=0)
+                    quality = rolling_crps(xobs_leads, xsim_leads)
                 elif metric == 'stochastic':
                     quality = rolling_crps(xobs_leads, xsim_leads)
                 bs_qualities.append(quality)
@@ -66,13 +68,15 @@ def metric_map(growth_rates, timesteps, doy_inits, metric, my_dir = ''):
         for doy in np.arange(0, doy_inits):
 
             xsim, xobs = generate_data(timesteps=timesteps, growth_rate=r,
-                                       sigma=s, phi=0.00, initial_uncertainty=0.00,
+                                       sigma=s, phi=0.00, initial_uncertainty=0.001,
                                        doy_0=doy, ensemble_size=15)
             xsim_leads = xsim[:, (doy_inits - doy):(timesteps)]
             xobs_leads = xobs[:, (doy_inits - doy):(timesteps), 0]
             if metric == 'deterministic':
                 #quality = np.mean(rolling_corrs(xobs_leads, xsim_leads), axis=0)
-                quality = np.mean(abs(np.subtract(xobs_leads, xsim_leads)), axis=0)
+                # quality = np.mean(abs(np.subtract(xobs_leads, xsim_leads)), axis=0)
+                xsim_leads = np.mean(xsim_leads, axis=0)
+                quality = rolling_crps(xobs_leads, xsim_leads)
             elif metric == 'stochastic':
                 quality = rolling_crps(xobs_leads, xsim_leads)
             qualities.append(quality)
@@ -82,27 +86,22 @@ def metric_map(growth_rates, timesteps, doy_inits, metric, my_dir = ''):
 
     return metric_map
 
-def get_climatology(scenario, timesteps, doy_inits, metric, growth_rate, s, add_trend=True):
+def get_climatology(scenario, timesteps, doy_inits, growth_rate, s, add_trend=True):
 
-    clim = diurnal_climatology(scenario = scenario, growth_rate=growth_rate, sigma=s, initial_uncertainty=0.00, add_trend=add_trend,
+    clim = diurnal_climatology(scenario = scenario, growth_rate=growth_rate, sigma=s, initial_uncertainty=0.001, add_trend=add_trend,
                                add_noise=False)  # create climatology
     clim_subset = clim[doy_inits:timesteps, :]
 
-    if metric == 'deterministic':
-
-        clims = clim_subset.mean(axis=1)
-
-    else:
-        clims = np.transpose(clim_subset)
+    clims = np.transpose(clim_subset)
 
     return clims
 
 
 def plot_simulations(scenario, growth_rate, s, add_trend, add_noise=False, my_dir=''):
-    clim = diurnal_climatology(scenario = scenario, growth_rate=growth_rate, sigma=s, initial_uncertainty=0.00, add_trend=True,
+    clim = diurnal_climatology(scenario = scenario, growth_rate=growth_rate, sigma=s, initial_uncertainty=0.001, add_trend=True,
                                add_noise=False)  # create climatology
     xsim, xobs = generate_data(timesteps=365, growth_rate=growth_rate,
-                               sigma=s, phi=0.00, initial_uncertainty=0.00,
+                               sigma=s, phi=0.00, initial_uncertainty=0.001,
                                doy_0=0, ensemble_size=15,
                                environment='exogeneous', add_trend=add_trend, add_noise=add_noise)  # create simulations
     xobs = xobs[:, :, 0]  # observations
@@ -134,21 +133,25 @@ def metric_map_benchmark(growth_rates, timesteps, doy_inits, metric, threshold =
     for r in growth_rates:
 
         scenario = 'imperfect_model'
-        clim_subset = get_climatology(scenario, timesteps, doy_inits, metric, growth_rate=r, s=s, add_trend=False)
+        clim_subset = get_climatology(scenario, timesteps, doy_inits, growth_rate=r, s=s, add_trend=False)
         skill = []
         plot_simulations(scenario, r, s, add_trend=True, my_dir = f'results/main/simulations_{s}_{r}.pdf')
 
         for doy in np.arange(0,doy_inits):
             xsim, xobs = generate_data(timesteps=timesteps, growth_rate=r,
-                                       sigma=s, phi=0.00, initial_uncertainty=0.00,
+                                       sigma=s, phi=0.00, initial_uncertainty=0.001,
                                        doy_0=doy, ensemble_size=15)
             xsim_leads = xsim[:,(doy_inits-doy):(timesteps)]
             xobs_leads = xobs[:,(doy_inits-doy):(timesteps),0]
 
             if metric =='deterministic':
-                xsim_abs = np.mean(abs(xsim_leads - xobs_leads),axis=0)
-                clim_abs = abs(clim_subset - xobs_leads)
-                skill.append(np.subtract(xsim_abs, clim_abs))
+                #xsim_abs = np.mean(abs(xsim_leads - xobs_leads),axis=0)
+                # clim_abs = np.mean(abs(clim_subset - xobs_leads), axis=0)
+                xsim_leads = np.mean(xsim_leads, axis=0)
+                xsim_crps = rolling_crps(xobs_leads, xsim_leads)
+                clim_leads = np.mean(clim_subset, axis=0)
+                clim_crps = rolling_crps(xobs_leads, clim_leads)
+                skill.append(np.subtract(xsim_crps, clim_crps))
             else:
                 xsim_crps = rolling_crps(xobs_leads, xsim_leads)
                 clim_crps = rolling_crps(xobs_leads, clim_subset)
@@ -175,7 +178,7 @@ def metric_map_benchmark_intrinsic(growth_rates, timesteps, doy_inits, metric, b
     for r in growth_rates:
 
         scenario = 'perfect_model'
-        clim_subset = get_climatology(scenario, timesteps, doy_inits, metric, r, s, add_trend=False)
+        clim_subset = get_climatology(scenario, timesteps, doy_inits, r, s, add_trend=False)
 
         skill = []
         plot_simulations(scenario, r, s, add_trend=True, my_dir = f'results/main/simulations_int_{s}_{r}.pdf')
@@ -184,7 +187,7 @@ def metric_map_benchmark_intrinsic(growth_rates, timesteps, doy_inits, metric, b
             bs_skill = []
             for bs in range(bootstrap_samples):
                 xsim, xobs = generate_data(timesteps=timesteps, growth_rate=r,
-                                           sigma=s, phi=0.00, initial_uncertainty=0.00,
+                                           sigma=s, phi=0.00, initial_uncertainty=0.001,
                                            doy_0=doy, ensemble_size=15)
                 # replace observation by sample from forecast ensemble
                 xobs, xsim, index = sample_ensemble_member(xsim)
@@ -193,9 +196,13 @@ def metric_map_benchmark_intrinsic(growth_rates, timesteps, doy_inits, metric, b
                 xobs_leads = xobs[:,(doy_inits-doy):(timesteps)]
 
                 if metric =='deterministic':
-                    xsim_abs = np.mean(abs(xsim_leads - xobs_leads),axis=0)
-                    clim_abs = abs(clim_subset - xobs_leads)
-                    bs_skill.append(np.subtract(xsim_abs, clim_abs))
+                    #xsim_abs = np.mean(abs(xsim_leads - xobs_leads),axis=0)
+                    #clim_abs = np.mean(abs(clim_subset - xobs_leads), axis=0)
+                    xsim_leads = np.mean(xsim_leads, axis=0)
+                    xsim_crps = rolling_crps(xobs_leads, xsim_leads)
+                    clim_leads = np.mean(clim_subset, axis=0)
+                    clim_crps = rolling_crps(xobs_leads, clim_leads)
+                    bs_skill.append(np.subtract(xsim_crps, clim_crps))
                 else:
                     xsim_crps = rolling_crps(xobs_leads, xsim_leads)
                     clim_crps = rolling_crps(xobs_leads, clim_subset)
@@ -213,43 +220,43 @@ def metric_map_benchmark_intrinsic(growth_rates, timesteps, doy_inits, metric, b
     return metric_map_benchmark_intrinsic
 
 
-def plot_metric_maps(deterministic_map, stochastic_map, labels=['Absolute error', 'CRPS'], colorbars = True, my_dir=''):
+def plot_metric_maps(deterministic_map, stochastic_map, labels=['CRPS', 'CRPS'], colorbars = True, my_dir=''):
     plt.rcParams.update({'font.size': 16})
     fig, (ax1, ax2) = plt.subplots(figsize=(16, 9), ncols=2, nrows=2)
     pos1 = ax1[0,].imshow(deterministic_map[0], cmap='Greys')
     ax1[0,].matshow(deterministic_map[0], cmap='Greys')
     ax1[0,].set_ylabel('Day from Lead')
-    ax1[0,].set_xlabel('Lead (Day of Year)')
+    ax1[0,].set_xlabel('Time')
     ax1[0,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
                        labels=np.arange(doy_inits, timesteps, step=10))
-    ax1[0,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits + 5, step=5)[::-1])
+    #ax1[0,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits + 5, step=5)[::-1])
     if colorbars:
         plt.colorbar(pos1, ax=ax1[0,], label=labels[0])
     pos2 = ax1[1,].imshow(deterministic_map[1], cmap='Greys')
     ax1[1,].matshow(deterministic_map[1], cmap='Greys')
     ax1[1,].set_ylabel('Day from Lead')
-    ax1[1,].set_xlabel('Lead (Day of Year)')
+    ax1[1,].set_xlabel('Time')
     ax1[1,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
                        labels=np.arange(doy_inits, timesteps, step=10))
-    ax1[1,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits+5, step=5)[::-1])
+    #ax1[1,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits+5, step=5)[::-1])
     if colorbars:
         plt.colorbar(pos2, ax=ax1[1,], label=labels[0])
     pos1 = ax2[0,].imshow(stochastic_map[0], cmap='Greys')
     ax2[0,].matshow(stochastic_map[0], cmap='Greys')
     ax2[0,].set_ylabel('Day from Lead')
-    ax2[0,].set_xlabel('Lead (Day of Year)')
+    ax2[0,].set_xlabel('Time')
     ax2[0,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
                        labels=np.arange(doy_inits, timesteps, step=10))
-    ax2[0,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits + 5, step=5)[::-1])
+    #ax2[0,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits + 5, step=5)[::-1])
     if colorbars:
         plt.colorbar(pos1, ax=ax2[0,], label=labels[1])
     pos2 = ax2[1,].imshow(stochastic_map[1], cmap='Greys')
     ax2[1,].matshow(stochastic_map[1], cmap='Greys')
     ax2[1,].set_ylabel('Day from Lead')
-    ax2[1,].set_xlabel('Lead (Day of Year)')
+    ax2[1,].set_xlabel('Time')
     ax2[1,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
                        labels=np.arange(doy_inits, timesteps, step=10))
-    ax2[1,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits+5, step=5)[::-1])
+    #ax2[1,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits+5, step=5)[::-1])
     if colorbars:
         plt.colorbar(pos2, ax=ax2[1,], label=labels[1])
     fig.tight_layout()
@@ -265,13 +272,13 @@ def plot_metric_map_intersection(similarity_nonchaotic, similarity_chaotic, my_d
     ax1[0,].set_xlabel('Lead (Day of Year)')
     ax1[0,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
                            labels=np.arange(doy_inits, timesteps, step=10))
-    ax1[0,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits + 5, step=5)[::-1])
+    #ax1[0,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits + 5, step=5)[::-1])
     ax1[1,].imshow(similarity_chaotic, cmap='winter_r')
     ax1[1,].set_ylabel('Day from Lead')
-    ax1[1,].set_xlabel('Lead (Day of Year)')
+    ax1[1,].set_xlabel('Time')
     ax1[1,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
                            labels=np.arange(doy_inits, timesteps, step=10))
-    ax1[1,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits+5, step=5)[::-1])
+    #ax1[1,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits+5, step=5)[::-1])
     fig.tight_layout()
     plt.show()
     fig.savefig(my_dir)
