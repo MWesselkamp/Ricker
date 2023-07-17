@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 import matplotlib.pyplot as plt
 
-from simulations import simulate_temperature, generate_data
+from utils import simulate_temperature
 import numpy as np
 
 np.random.seed(42)
@@ -17,10 +17,11 @@ class Ricker_Predation(nn.Module):
 
     """
 
-    def __init__(self, params, noise):
+    def __init__(self, params, noise = None):
         super().__init__()
         if not noise is None:
-            self.model_params = torch.nn.Parameter(torch.tensor(params+noise, requires_grad=True, dtype=torch.double))
+            self.model_params = torch.nn.Parameter(torch.tensor(params + [noise], requires_grad=True, dtype=torch.double))
+            self.noise = noise
         else:
             self.model_params = torch.nn.Parameter(torch.tensor(params, requires_grad=True, dtype=torch.double))
             self.noise = noise
@@ -38,9 +39,9 @@ class Ricker_Predation(nn.Module):
         if not self.noise is None:
             for i in range(len(Temp) - 1):
                 out[0, i + 1] = out.clone()[0, i] * torch.exp(alpha1*(1 - beta1*out.clone()[0, i] - gamma1*out.clone()[1, i] + bx1 * Temp[i] + cx1 * Temp[i]**2)) \
-                                + sigma*torch.normal(mean=torch.tensor([0.0,]), std=torch.tensor([1.0]))
+                                + sigma*torch.normal(mean=torch.tensor([0.0,]), std=torch.tensor([0.1]))
                 out[1, i + 1] = out.clone()[1, i] * torch.exp(alpha2*(1 - beta2*out.clone()[1, i] - gamma2*out.clone()[0, i] + bx2 * Temp[i] + cx2 * Temp[i]**2)) \
-                                + sigma*torch.normal(mean=torch.tensor([0.0,]), std=torch.tensor([1.0]))
+                                + sigma*torch.normal(mean=torch.tensor([0.0,]), std=torch.tensor([0.1]))
         else:
             for i in range(len(Temp) - 1):
                 out[0, i + 1] = out.clone()[0, i] * torch.exp(alpha1*(1 - beta1*out.clone()[0, i] - gamma1*out.clone()[1, i] + bx1 * Temp[i] + cx1 * Temp[i]**2))
@@ -115,34 +116,54 @@ class Ricker_Ensemble(nn.Module):
      describing the dynamics of two species interacting in a predator-prey relationship.
     """
 
-    def __init__(self, params, noise=None):
+    def __init__(self, params, noise=None, initial_uncertainty = None):
 
         super().__init__()
 
-        if not noise is None:
-            self.model_params = torch.nn.Parameter(torch.tensor(params + noise, requires_grad=True, dtype=torch.double))
+        if (not noise is None) & (not initial_uncertainty is None):
+            self.model_params = torch.nn.Parameter(torch.tensor(params + [noise] + [initial_uncertainty], requires_grad=True, dtype=torch.double))
+            self.initial_uncertainty = initial_uncertainty
             self.noise = noise
-        else:
+        elif (not noise is None) & (initial_uncertainty is None):
+            self.model_params = torch.nn.Parameter(torch.tensor(params + [noise], requires_grad=True, dtype=torch.double))
+            self.initial_uncertainty = initial_uncertainty
+            self.noise = noise
+        elif (noise is None) & (not initial_uncertainty is None):
+            self.model_params = torch.nn.Parameter(torch.tensor(params + [initial_uncertainty], requires_grad=True, dtype=torch.double))
+            self.initial_uncertainty = initial_uncertainty
+            self.noise = noise
+        elif (noise is None) & (initial_uncertainty is None):
             self.model_params = torch.nn.Parameter(torch.tensor(params, requires_grad=True, dtype=torch.double))
-            self.noise = None
+            self.noise = noise
+            self.initial_uncertainty = initial_uncertainty
 
-    def forward(self, N0, Temp):
+    def forward(self, N0, Temp, ensemble_size=15):
 
-        if not self.noise is None:
+        if (not self.noise is None) & (not self.initial_uncertainty is None):
+            alpha, beta, bx, cx, sigma, phi = self.model_params
+        elif (not self.noise is None) & (self.initial_uncertainty is None):
             alpha, beta, bx, cx, sigma = self.model_params
+        elif (self.noise is None) & (not self.initial_uncertainty is None):
+            alpha, beta, bx, cx, phi = self.model_params
         else:
             alpha, beta, bx, cx = self.model_params
 
         Temp = Temp.squeeze()
 
-        out = torch.zeros((len(N0), len(Temp)), dtype=torch.double)
-        out[:,0] = N0  # initial value
+        if not self.initial_uncertainty is None:
+            initial = N0 + phi*torch.normal(torch.zeros((ensemble_size)), torch.repeat_interleave(torch.tensor([0.1]), ensemble_size))
+            out = torch.zeros((len(initial), len(Temp)), dtype=torch.double)
+        else:
+            initial = N0
+            out = torch.zeros((1, len(Temp)), dtype=torch.double)
+
+        out[:,0] = initial  # initial value
 
         if not self.noise is None:
             for i in range(len(Temp) - 1):
                 out[:,i + 1] = out.clone()[:,i] * torch.exp(
                     alpha * (1 - beta * out.clone()[:,i] + bx * Temp[i] + cx * Temp[i] ** 2)) \
-                             + sigma * torch.normal(mean=torch.tensor([0.0, ]), std=torch.tensor([1.0]))
+                             + sigma * torch.normal(mean=torch.tensor([0.0, ]), std=torch.tensor([0.1]))
         else:
             for i in range(len(Temp) - 1):
                 out[:,i + 1] = out.clone()[:,i] * torch.exp(
@@ -151,11 +172,13 @@ class Ricker_Ensemble(nn.Module):
         return out
 
     def __repr__(self):
+
         return f" alpha: {self.model_params[0].item()}, \
             beta: {self.model_params[1].item()}, \
                 bx: {self.model_params[2].item()}, \
                     cx: {self.model_params[3].item()}, \
-               sigma: {self.noise}"
+               sigma: {self.noise}, \
+               phi: {self.initial_uncertainty}"
 
 
 
@@ -214,45 +237,47 @@ def crps_loss(outputs, targets):
 
 timesteps = 365*2
 temperature = simulate_temperature(timesteps=timesteps)
-observation_params = [0.18, 1, 0.021, 0.96, 1.05, 0.16,  1, 0.02, 0.97, 1.06]
-noise = [0., 0]
-observation_model = Ricker_Predation(params = observation_params, noise = None)
+observation_params = [0.18, 1, 0.021, 0.41, 0.5, 0.16,  1, 0.02, 0.62, 0.72]
+true_noise =  0.5 # None # [1]
+observation_model = Ricker_Predation(params = observation_params, noise = true_noise)
 dyn_obs = observation_model(Temp = temperature)
 y = dyn_obs[0,:].clone().detach().requires_grad_(True)
 plt.plot(y.detach().numpy())
 
-step_length = 150
+step_length = 25
 data = SimODEData(step_length=step_length, y = y, temp=temperature)
 trainloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
 
 initial_params = [0.15, 0.95, 0.05, 0.05]
-noise = [0.01]
-model = Ricker_Ensemble(params=initial_params, noise = None)
+initial_noise = 0.1 # None # [0.01]
+initial_uncertainty = 0.1
+model = Ricker_Ensemble(params=initial_params, noise = initial_noise, initial_uncertainty = initial_uncertainty)
 
 optimizer = torch.optim.Adam([{'params':model.model_params}], lr=0.0001)
-#criterion = torch.nn.MSELoss()
+criterion = torch.nn.MSELoss()
 #criterion = CRPSLoss()
 
+loss_fun = 'mse'
 losses = []
-ensemble_size = 15
-for epoch in range(50):
+for epoch in range(15):
     for batch in trainloader:
 
         target, temp = batch
         target = target.squeeze()
         initial_state = target.clone()[0]
-        initial_ensemble = initial_state + torch.normal(torch.zeros((ensemble_size)), torch.repeat_interleave(torch.tensor([0.01]), ensemble_size))
 
         optimizer.zero_grad()
 
-        output = model(initial_ensemble, temp)
+        output = model(initial_state, temp)
 
-        loss = torch.zeros((1), requires_grad = True).clone()
-        #for i in range(step_length):
-            #loss += criterion(output[:,i].squeeze(), target[i])
-        loss = torch.stack([crps_loss(output[:,i].squeeze(), target[i]) for i in range(step_length)])
-        loss = torch.sum(loss)/step_length
-        #mse_loss = mse_criterion(output, target.squeeze())
+
+        if loss_fun == 'mse':
+            loss = criterion(output, target)
+            loss = torch.sum(loss) / step_length
+        else:
+            loss = torch.zeros((1), requires_grad=True).clone()
+            loss = torch.stack([crps_loss(output[:,i].squeeze(), target[i]) for i in range(step_length)])
+            loss = torch.sum(loss)/step_length
         #mse_loss = CRPSLoss(output, target.squeeze())
         #kl_loss = kl_criterion(output, target.squeeze())
         loss.backward()
@@ -260,15 +285,29 @@ for epoch in range(50):
         losses.append(loss.clone())
         optimizer.step()
 
-plt.plot(losses)
-print(model)
+ll = torch.stack(losses).detach().numpy()
+plt.plot(ll)
+plt.close()
 
 params = [par for par in model.model_params]
-modelinit = Ricker_Ensemble(params = initial_params, noise=None)
-modelfit = Ricker_Ensemble(params = params, noise=None)
-initial_ensemble = 1 + torch.normal(torch.zeros((ensemble_size)), torch.repeat_interleave(torch.tensor([0.1]), ensemble_size))
+print(params)
 
-ypreds = modelfit.forward(N0=initial_ensemble, Temp=temperature).detach().numpy()
-yinit = modelinit.forward(N0=initial_ensemble, Temp=temperature).detach().numpy()
-plt.plot(np.transpose(ypreds), color='blue')
-plt.plot(np.transpose(yinit), color='red')
+if (not initial_noise is None) & (not initial_uncertainty is None):
+    modelinit = Ricker_Ensemble(params = initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
+    modelfit = Ricker_Ensemble(params = params[:4], noise=[params[4]], initial_uncertainty=[params[5]])
+elif (not initial_noise is None) & (initial_uncertainty is None):
+    modelinit = Ricker_Ensemble(params=initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
+    modelfit = Ricker_Ensemble(params=params[:4], noise=[params[4]], initial_uncertainty=None)
+elif (initial_noise is None) & (not initial_uncertainty is None):
+    modelinit = Ricker_Ensemble(params=initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
+    modelfit = Ricker_Ensemble(params=params[:4], noise=None, initial_uncertainty=[params[4]])
+else:
+    modelinit = Ricker_Ensemble(params=initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
+    modelfit = Ricker_Ensemble(params=params[:4], noise=None, initial_uncertainty=None)
+
+yinit = modelinit.forward(N0=1, Temp=temperature).detach().numpy()
+ypreds = modelfit.forward(N0=1, Temp=temperature).detach().numpy()
+
+plt.plot(np.transpose(yinit), color='lightblue', label = 'init')
+plt.plot(np.transpose(ypreds), color='blue', label='fit')
+plt.plot(np.transpose(y.detach().numpy()), color='red', label='true')
