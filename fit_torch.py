@@ -1,16 +1,20 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Dataset
+import numpy as np
 import matplotlib.pyplot as plt
 
 from utils import simulate_temperature
-import numpy as np
+from visualisations import plot_fit
+from torch.utils.data import DataLoader, Dataset
+from CRPS import CRPS
+from metrics import rolling_mse
+from neuralforecast.losses.pytorch import sCRPS, MQLoss, MAE, QuantileLoss
 
 np.random.seed(42)
 
-#==============================================#
-# Simple example for the use of the optimizer  #
-#==============================================#
+#===========================================#
+# Fit the Ricker model with gradien descent #
+#===========================================#
 
 class Ricker_Predation(nn.Module):
     """
@@ -171,14 +175,14 @@ class Ricker_Ensemble(nn.Module):
 
         return out
 
-    def __repr__(self):
+    def get_fit(self):
 
-        return f" alpha: {self.model_params[0].item()}, \
-            beta: {self.model_params[1].item()}, \
-                bx: {self.model_params[2].item()}, \
-                    cx: {self.model_params[3].item()}, \
-               sigma: {self.noise}, \
-               phi: {self.initial_uncertainty}"
+        return {"alpha": self.model_params[0].item(), \
+            "beta": self.model_params[1].item(), \
+                "bx": self.model_params[2].item(), \
+                    "cx": self.model_params[3].item(), \
+               "sigma": self.noise if self.noise is None else self.model_params[4].item(), \
+               "phi": self.initial_uncertainty if self.initial_uncertainty is None else self.model_params[5].item()}
 
 
 
@@ -235,31 +239,39 @@ def crps_loss(outputs, targets):
 
     return loss
 
+# Create observations
 timesteps = 365*2
 temperature = simulate_temperature(timesteps=timesteps)
-observation_params = [0.18, 1, 0.021, 0.41, 0.5, 0.16,  1, 0.02, 0.62, 0.72]
-true_noise =  0.5 # None # [1]
+observation_params = [1.08, 1, 0.021, 0.41, 0.5, 1.06,  1, 0.02, 0.62, 0.72] # for chaotic, set r1 = 0.18 and r2 = 0.16 to r1 = 1.08 and r2 = 1.06
+true_noise =  0.3 # None # [1]
 observation_model = Ricker_Predation(params = observation_params, noise = true_noise)
 dyn_obs = observation_model(Temp = temperature)
 y = dyn_obs[0,:].clone().detach().requires_grad_(True)
+
 plt.plot(y.detach().numpy())
+plt.show()
+plt.close()
 
 step_length = 25
+
 data = SimODEData(step_length=step_length, y = y, temp=temperature)
 trainloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
 
-initial_params = [0.15, 0.95, 0.05, 0.05]
+initial_params = [0.95, 0.95, 0.95, 0.05]
 initial_noise = 0.1 # None # [0.01]
 initial_uncertainty = 0.1
 model = Ricker_Ensemble(params=initial_params, noise = initial_noise, initial_uncertainty = initial_uncertainty)
 
 optimizer = torch.optim.Adam([{'params':model.model_params}], lr=0.0001)
-criterion = torch.nn.MSELoss()
-#criterion = CRPSLoss()
 
-loss_fun = 'mse'
+criterion = torch.nn.MSELoss()
+criterion2 = sCRPS()
+criterion3 = MQLoss(quantiles = [0.4, 0.6])
+criterion4 = QuantileLoss(0.5) # Pinball Loss
+
+loss_fun = 'quantile'
 losses = []
-for epoch in range(15):
+for epoch in range(25):
     for batch in trainloader:
 
         target, temp = batch
@@ -270,44 +282,162 @@ for epoch in range(15):
 
         output = model(initial_state, temp)
 
-
         if loss_fun == 'mse':
             loss = criterion(output, target)
             loss = torch.sum(loss) / step_length
-        else:
-            loss = torch.zeros((1), requires_grad=True).clone()
+        elif loss_fun == 'crps':
+            # loss = torch.zeros((1), requires_grad=True).clone()
             loss = torch.stack([crps_loss(output[:,i].squeeze(), target[i]) for i in range(step_length)])
             loss = torch.sum(loss)/step_length
-        #mse_loss = CRPSLoss(output, target.squeeze())
-        #kl_loss = kl_criterion(output, target.squeeze())
+        elif loss_fun == 'quantile':
+            loss = torch.stack([criterion4(target[i], output[:,i].squeeze()) for i in range(step_length)])
+            loss = torch.sum(loss) / step_length
+        elif loss_fun == 'mquantile':
+            pass
+
         loss.backward()
-        #kl_loss.backward()
         losses.append(loss.clone())
         optimizer.step()
+
 
 ll = torch.stack(losses).detach().numpy()
 plt.plot(ll)
 plt.close()
-
-params = [par for par in model.model_params]
-print(params)
+print(model.get_fit())
+fm = model.get_fit()
+params = [v for v in fm.values()][:4]
 
 if (not initial_noise is None) & (not initial_uncertainty is None):
     modelinit = Ricker_Ensemble(params = initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
-    modelfit = Ricker_Ensemble(params = params[:4], noise=[params[4]], initial_uncertainty=[params[5]])
+    modelfit = Ricker_Ensemble(params = params, noise=fm['sigma'], initial_uncertainty=fm['phi'])
 elif (not initial_noise is None) & (initial_uncertainty is None):
     modelinit = Ricker_Ensemble(params=initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
-    modelfit = Ricker_Ensemble(params=params[:4], noise=[params[4]], initial_uncertainty=None)
+    modelfit = Ricker_Ensemble(params=params, noise=fm['sigma'], initial_uncertainty=None)
 elif (initial_noise is None) & (not initial_uncertainty is None):
     modelinit = Ricker_Ensemble(params=initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
-    modelfit = Ricker_Ensemble(params=params[:4], noise=None, initial_uncertainty=[params[4]])
+    modelfit = Ricker_Ensemble(params=params, noise=None, initial_uncertainty=fm['phi'])
 else:
     modelinit = Ricker_Ensemble(params=initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
-    modelfit = Ricker_Ensemble(params=params[:4], noise=None, initial_uncertainty=None)
+    modelfit = Ricker_Ensemble(params=params, noise=None, initial_uncertainty=None)
 
 yinit = modelinit.forward(N0=1, Temp=temperature).detach().numpy()
 ypreds = modelfit.forward(N0=1, Temp=temperature).detach().numpy()
 
-plt.plot(np.transpose(yinit), color='lightblue', label = 'init')
-plt.plot(np.transpose(ypreds), color='blue', label='fit')
-plt.plot(np.transpose(y.detach().numpy()), color='red', label='true')
+plot_fit(yinit, ypreds, y, scenario='stochastic_nonchaotic', loss_fun=loss_fun)
+
+#=============================#
+# Forecasting with the fitted #
+#=============================#
+
+class ForecastData(Dataset):
+    """
+        A very simple dataset class for generating forecast data sets of different lengths.
+    """
+    def __init__(self, y, temp, climatology = None):
+        self.y = y
+        self.temp = temp
+        self.climatology = climatology
+
+    def __len__(self) -> int:
+        return len(self.y)-1
+
+    def __getitem__(self, index: int): #  -> Tuple[torch.Tensor, torch.Tensor]
+        if not self.climatology is None:
+            return self.y[index:len(self.y)], self.temp[index:len(self.temp)], self.climatology[:,index:len(self.y)]
+        else:
+            return self.y[index:len(self.y)], self.temp[index:len(self.temp)]
+
+
+def nash_sutcliffe(observed, modeled):
+    """
+    Calculate Nash-Sutcliffe Efficiency (NSE).
+    """
+    observed = np.array(observed)
+    modeled = np.array(modeled)
+    mean_observed = np.mean(observed)
+
+    # Calculate sum of squared differences between observed and modeled values
+    ss_diff = np.sum((observed - modeled) ** 2)
+    # Calculate sum of squared differences between observed and mean of observed values
+    ss_total = np.sum((observed - mean_observed) ** 2)
+
+    # Nash-Sutcliffe Efficiency
+    nse = 1 - (ss_diff / ss_total)
+
+    return nse
+
+# Create climatology
+years = 15
+timesteps_clim = 365*years
+temperature_clim = simulate_temperature(timesteps=timesteps_clim)
+clim_model = Ricker_Predation(params = observation_params, noise = true_noise)
+clim_obs = clim_model(Temp = temperature_clim)
+clim_mat = clim_obs[0,:].view(years, 365)
+
+y_test, temp_test = y[365:], temperature[365:]
+plot_fit(yinit[:,365:], ypreds[:,365:], y_test, scenario='stochastic_nonchaotic', loss_fun=loss_fun, clim=clim_mat, save=False)
+
+data = ForecastData(y_test,temp_test, clim_mat)
+forecastloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
+
+mat_ricker = np.full((len(y_test), len(y_test)), np.nan)
+mat_climatology = np.full((len(y_test), len(y_test)), np.nan)
+
+i = 0
+metric = 'mse'
+for states, temps, clim in forecastloader:
+    print('I is: ', i)
+    N0 = states[:,0]
+    clim = clim.squeeze().detach().numpy()
+    forecast = modelfit.forward(N0, temps).detach().numpy()
+    states = states.squeeze().detach().numpy()
+    if metric == 'crps':
+        performance = [CRPS(forecast[:,i], states[i]).compute()[0] for i in range(forecast.shape[1])]
+        performance_ref = [CRPS(clim[:, i], states[i]).compute()[0] for i in range(clim.shape[1])]
+        mat_ricker[i, i:] = performance
+        mat_climatology[i, i:] = performance_ref
+    elif metric == 'nashsutcliffe':
+        performance = [np.mean([nash_sutcliffe(states[:k+1], forecast[j, :k+1]) for j in range(forecast.shape[0])]) for k in range(forecast.shape[1]-1)]
+        performance_ref = [np.mean([nash_sutcliffe(states[:k+1], clim[j, :k+1]) for j in range(forecast.shape[0])])  for k in range(clim.shape[1]-1)]
+        mat_ricker[i, i+1:] = performance
+        mat_climatology[i, i+1:] = performance_ref
+    elif metric == 'mse':
+        performance = np.mean(rolling_mse(states[np.newaxis,:], forecast), axis=0)
+        performance_ref = np.mean(rolling_mse(states[np.newaxis,:], clim), axis=0)
+        mat_ricker[i, i:] = performance
+        mat_climatology[i, i:] = performance_ref
+    i += 1
+
+mat_ricker[np.isinf(mat_ricker)] = np.nan
+mat_ricker_plot = mat_ricker
+if metric == 'nashsutcliffe':
+    fh = mat_ricker <= 0
+    mask = np.isfinite(mat_ricker)
+    mat_ricker_plot[mask] = fh[mask]
+fig, ax = plt.subplots()
+plt.imshow(mat_ricker_plot)
+plt.colorbar()
+plt.xlabel('Day of year')
+plt.ylabel('Forecast length')
+
+mat_climatology[np.isinf(mat_climatology)] = np.nan
+mat_climatology_plot = mat_climatology
+if metric == 'nashsutcliffe':
+    fh = mat_climatology <= 0
+    mask = np.isfinite(mat_climatology)
+    mat_climatology_plot[mask] = fh[mask]
+fig, ax = plt.subplots()
+plt.imshow(mat_climatology_plot)
+plt.colorbar()
+plt.xlabel('Day of year')
+plt.ylabel('Forecast length')
+
+fig, ax = plt.subplots()
+skill = 1 - (mat_ricker/mat_climatology) # If mse of climatology is larger, term is larger zero.
+fh = skill <= 0 # FH of the ricker is reached when mse of climatology drops below ricker mse
+mask = np.isfinite(skill)
+skill[mask] = fh[mask]
+plt.imshow(skill, cmap='autumn_r')
+plt.colorbar()
+plt.xlabel('Day of year')
+plt.ylabel('Forecast length')
