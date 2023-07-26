@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_fit(yinit, ypreds, y, scenario, loss_fun, clim = None, save=True):
+def plot_fit(yinit, ypreds, y, scenario, loss_fun, clim = None, fh_metric = None, save=True):
 
     fig, (ax1, ax2) = plt.subplots(2,1, sharex=True, gridspec_kw={'height_ratios': [3,1]})
     if not clim is None:
@@ -16,14 +16,21 @@ def plot_fit(yinit, ypreds, y, scenario, loss_fun, clim = None, save=True):
     plt.setp(true[1:], label="_")
     ax1.legend()
     ax1.set_ylabel('Relative size')
-    ax2.plot(np.transpose(ypreds)-np.transpose(y.detach().numpy()[np.newaxis, :]
-), color='gray', linewidth = 0.8)
+    if not fh_metric is None:
+        ax2.plot(list(fh_metric.values())[1], color='gray', linewidth=0.8)
+        ax2.plot(list(fh_metric.values())[0], color='blue', linewidth=0.8)
+        ax2.set_ylabel(list(fh_metric.keys())[0])
+    else:
+        ax2.plot(np.transpose(ypreds) - np.transpose(y.detach().numpy()[np.newaxis, :]), color='gray', linewidth=0.8)
+        ax2.set_ylabel('Absolute error')
     ax2.axhline(y=0, color = 'black', linestyle='--', linewidth = 0.8)
-    ax2.set_ylabel('Absolute error')
     ax2.set_xlabel('Timestep [Days]')
     plt.tight_layout()
     if save:
-        plt.savefig(f'plots/fit_{scenario}_{loss_fun}.pdf')
+        if not clim is None:
+            plt.savefig(f'plots/fit_{scenario}_{loss_fun}loss.pdf')
+        else:
+            plt.savefig(f'plots/verification_{scenario}_{fh_metric}fh.pdf')
 
 def baseplot(x1, x2=None, x3 = None, transpose=False, xlab=None, ylab=None):
     if transpose:
