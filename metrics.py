@@ -56,12 +56,7 @@ def rolling_corrs(reference, ensemble, window = 3, abs = False):
     :param window: int. Size of moving window.
     :return: array with correlations. shape:
     """
-    corrs = []
-    for j in range(reference.shape[1]-window):
-        ecorrs = []
-        for i in range(ensemble.shape[0]):
-            ecorrs.append(pearsonr(reference[0,j:j+window], ensemble[i,j:j+window])[0])
-        corrs.append(ecorrs)
+    corrs = [[pearsonr(reference[0,j:j+window], ensemble[i,j:j+window])[0] for i in range(ensemble.shape[0])] for j in range(reference.shape[1]-window)]
     corrs = np.transpose(np.array(corrs))
     if abs:
         return abs(corrs)
@@ -93,12 +88,14 @@ def rolling_rsquared(reference, ensemble):
 
 def rmse(reference, ensemble, standardized = False):
     if standardized:
-        return math.sqrt(np.square(np.subtract(reference, ensemble)).mean()) / (np.max(reference) - np.min(reference))
+        return np.sqrt(np.mean(np.subtract(reference,ensemble)**2, axis=0))/ (np.max(reference) - np.min(reference))
     else:
-        return math.sqrt(np.square(np.subtract(reference,ensemble)).mean())
+        return np.sqrt(np.mean(np.subtract(reference,ensemble)**2, axis=0))
 
-def mse(reference, ensemble):
-    mse = np.mean(np.subtract(reference, ensemble)**2, axis=0)
+def mse(reference, ensemble, ensemble_mean=True):
+    if ensemble_mean:
+        mse = np.mean(np.subtract(reference, ensemble)**2, axis=0)
+
     return mse
 
 def squared_error_SNR(obs, pred):

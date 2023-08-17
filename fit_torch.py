@@ -1,43 +1,45 @@
 import torch
 import torch.nn as nn
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-import argparse
+#import argparse
 import os
 import os.path
 import yaml
+import scipy.stats as stats
 
-from utils import simulate_temperature
+from utils import simulate_temperature, standardize
 from visualisations import plot_fit
 from torch.utils.data import DataLoader, Dataset
 from CRPS import CRPS
-from metrics import rolling_mse, mse
+import properscoring as ps
+from metrics import rolling_mse, mse, rolling_corrs, rmse, absolute_differences
+from sklearn.metrics import r2_score
+from scipy.stats import shapiro
 from neuralforecast.losses.pytorch import sCRPS, MQLoss, MAE, QuantileLoss
 
-np.random.seed(42)
-parse = False
+#parse = False
+seed = False
 
+if seed:
+    np.random.seed(42)
 #set flags
-if parse:
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--process", type=str, help="Set process type to stochastic or deterministic")
-    parser.add_argument("--scenario", type=str, help="Set scenario type to chaotic or nonchaotic")
-    parser.add_argument("--loss_fun", type=str, help="Set loss function to quantile, crps or mse")
-    parser.add_argument("--fh_metric", type=str, help="Set horizon metric to crps, mse or nashsutcliffe")
+#if parse:
+#
+#    parser = argparse.ArgumentParser()
+#    parser.add_argument("--process", type=str, help="Set process type to stochastic or deterministic")
+#    parser.add_argument("--scenario", type=str, help="Set scenario type to chaotic or nonchaotic")
+#    parser.add_argument("--loss_fun", type=str, help="Set loss function to quantile, crps or mse")
+#    parser.add_argument("--fh_metric", type=str, help="Set horizon metric to crps, mse or nashsutcliffe")
 
     # Parse the command-line arguments
-    args = parser.parse_args()
-
-    process = args.process
-    scenario = args.scenario
-    loss_fun = args.loss_fun
-    fh_metric = args.fh_metric
-else:
-    process = 'deterministic'
-    scenario = 'chaotic'
-    loss_fun = 'mse'
-    fh_metric = 'mse'
+#    args = parser.parse_args()
+#
+#    process = args.process
+#    scenario = args.scenario
+#    loss_fun = args.loss_fun
+#    fh_metric = args.fh_metric
 
 #===========================================#
 # Fit the Ricker model with gradien descent #
@@ -96,8 +98,7 @@ class Ricker_Predation(nn.Module):
 
 class Ricker(nn.Module):
     """
-     The Lotka-Volterra equations are a pair of first-order, non-linear, differential equations
-     describing the dynamics of two species interacting in a predator-prey relationship.
+     Single species extended Ricker Model
     """
 
     def __init__(self, params, noise=None):
@@ -143,8 +144,7 @@ class Ricker(nn.Module):
 
 class Ricker_Ensemble(nn.Module):
     """
-     The Lotka-Volterra equations are a pair of first-order, non-linear, differential equations
-     describing the dynamics of two species interacting in a predator-prey relationship.
+     Single-Species extended Ricker with Ensemble prediction.
     """
 
     def __init__(self, params, noise=None, initial_uncertainty = None):
@@ -182,7 +182,7 @@ class Ricker_Ensemble(nn.Module):
         Temp = Temp.squeeze()
 
         if not self.initial_uncertainty is None:
-            initial = N0 + phi*torch.normal(torch.zeros((ensemble_size)), torch.repeat_interleave(torch.tensor([0.1]), ensemble_size))
+            initial = N0 + phi * torch.normal(torch.zeros((ensemble_size)), torch.repeat_interleave(torch.tensor([.1, ]), ensemble_size))
             out = torch.zeros((len(initial), len(Temp)), dtype=torch.double)
         else:
             initial = N0
@@ -194,13 +194,16 @@ class Ricker_Ensemble(nn.Module):
             for i in range(len(Temp) - 1):
                 out[:,i + 1] = out.clone()[:,i] * torch.exp(
                     alpha * (1 - beta * out.clone()[:,i] + bx * Temp[i] + cx * Temp[i] ** 2)) \
-                             + sigma * torch.normal(mean=torch.tensor([0.0, ]), std=torch.tensor([0.1]))
+                             + sigma * torch.normal(mean=torch.tensor([0.0, ]), std=torch.tensor([.1, ]))
+            #out_sigma = torch.full_like(out, torch.std(out).item())
+            return out, sigma
+
         else:
             for i in range(len(Temp) - 1):
                 out[:,i + 1] = out.clone()[:,i] * torch.exp(
                     alpha * (1 - beta * out.clone()[:,i] + bx * Temp[i] + cx * Temp[i] ** 2))
 
-        return out
+            return out, None
 
     def get_fit(self):
 
@@ -209,9 +212,8 @@ class Ricker_Ensemble(nn.Module):
                 "bx": self.model_params[2].item(), \
                     "cx": self.model_params[3].item(), \
                "sigma": self.noise if self.noise is None else self.model_params[4].item(), \
-               "phi": self.initial_uncertainty if self.initial_uncertainty is None else self.model_params[5].item()}
-
-
+               "phi": self.initial_uncertainty if self.initial_uncertainty is None else (self.model_params[5].item() if self.noise is not None else self.model_params[4].item())
+                }
 
 class SimODEData(Dataset):
     """
@@ -221,17 +223,74 @@ class SimODEData(Dataset):
     def __init__(self,
                  step_length,  # List of time points as tensors
                  y,  # List of dynamical state values (tensor) at each time point
+                 y_sigma,
                  temp,
                  ):
         self.step_length = step_length
         self.y = y
+        self.y_sigma = y_sigma
         self.temp = temp
 
     def __len__(self) -> int:
         return len(self.y) - self.step_length
 
     def __getitem__(self, index: int): #  -> Tuple[torch.Tensor, torch.Tensor]
-        return self.y[index:index+self.step_length], self.temp[index:index+self.step_length]
+        return self.y[index:index+self.step_length], self.y_sigma[index:index+self.step_length], self.temp[index:index+self.step_length]
+class ForecastData(Dataset):
+    """
+        A very simple dataset class for generating forecast data sets of different lengths.
+    """
+    def __init__(self, y, temp, climatology = None, lead_times = 'all'):
+        self.y = y
+        self.temp = temp
+        self.climatology = climatology
+        self.lead_times = lead_times
+
+    def __len__(self) -> int:
+        if self.lead_times == 'all':
+            return len(self.y)-1
+        else:
+            return 1
+
+    def __getitem__(self, index: int): #  -> Tuple[torch.Tensor, torch.Tensor]
+        if not self.climatology is None:
+            return self.y[index:len(self.y)], self.temp[index:len(self.temp)], self.climatology[:,index:len(self.y)]
+        else:
+            return self.y[index:len(self.y)], self.temp[index:len(self.temp)]
+def nash_sutcliffe(observed, modeled):
+    """
+    Calculate Nash-Sutcliffe Efficiency (NSE).
+    """
+    observed = np.array(observed)
+    modeled = np.array(modeled)
+    mean_observed = np.mean(observed)
+
+    # Calculate sum of squared differences between observed and modeled values
+    ss_diff = np.sum((observed - modeled) ** 2)
+    # Calculate sum of squared differences between observed and mean of observed values
+    ss_total = np.sum((observed - mean_observed) ** 2)
+
+    # Nash-Sutcliffe Efficiency
+    nse = 1 - (ss_diff / ss_total)
+
+    return nse
+
+def rolling_nash_sutcliffe(reference, ensemble, window=2):
+    nse = [[nash_sutcliffe(reference[j:j + window], ensemble[i, j:j + window]) for i in range(ensemble.shape[0])] for
+             j in range(ensemble.shape[1] - window)]
+    nse = np.transpose(np.array(nse))
+    return nse
+class LogNormalLoss(nn.Module):
+    def __init__(self, sigma_true):
+        super(LogNormalLoss, self).__init__()
+        self.sigma_true = sigma_true
+
+    def forward(self, predictions, mu_true):
+        # Calculate the log-likelihood for a log-normal distribution
+        loss = 0.5 * ((torch.log(predictions) - mu_true) ** 2) / self.sigma_true**2
+        loss = torch.mean(loss)
+
+        return loss
 
 def crps_loss(outputs, targets):
 
@@ -266,89 +325,66 @@ def crps_loss(outputs, targets):
 
     return loss
 
-# Create observations
-timesteps = 365*2
-temperature = simulate_temperature(timesteps=timesteps)
+def train(y_train,sigma_train, x_train, model, epochs, loss_fun = 'mse', step_length = 2):
 
-if scenario == 'chaotic':
-    observation_params = [1.08, 1, 0.021, 0.41, 0.5, 1.06,  1, 0.02, 0.62, 0.72] # for chaotic, set r1 = 0.18 and r2 = 0.16 to r1 = 1.08 and r2 = 1.06
-elif scenario == 'nonchaotic':
-    observation_params = [0.18, 1, 0.021, 0.41, 0.5, 0.16, 1, 0.02, 0.62, 0.72]
-if process == 'stochastic':
-    true_noise =  0.3 # None # [1]
-elif process == 'deterministic':
-    true_noise = None
+    data = SimODEData(step_length=step_length, y=y_train, y_sigma=sigma_train, temp=x_train)
+    trainloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
 
-observation_model = Ricker_Predation(params = observation_params, noise = true_noise)
-dyn_obs = observation_model(Temp = temperature)
-y = dyn_obs[0,:].clone().detach().requires_grad_(True)
+    optimizer = torch.optim.Adam([{'params':model.model_params}], lr=0.0001)
 
-plt.plot(y.detach().numpy())
-plt.show()
-plt.close()
+    criterion = torch.nn.MSELoss()
+    criterion2 = sCRPS()
+    criterion3 = MQLoss(quantiles = [0.4, 0.6])
+    criterion4 = QuantileLoss(0.5) # Pinball Loss
+    criterion5 = torch.nn.GaussianNLLLoss()
 
-step_length = 25
+    losses = []
+    for epoch in range(epochs):
 
-data = SimODEData(step_length=step_length, y = y, temp=temperature)
-trainloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
+        if epoch % 10 == 0:
+            print('Epoch:', epoch)
 
-if scenario == 'chaotic':
-    initial_params = [0.95, 0.95, 0.95, 0.05]
-elif scenario == 'nonchaotic':
-    initial_params = [0.15, 0.95, 0.15, 0.05]
+        for batch in trainloader:
 
-if process == 'stochastic':
-    initial_noise = 0.1  # None # [0.01]
-elif process == 'deterministic':
-    initial_noise = None # [0.01]
+            target, var, temp = batch
+            target = target.squeeze()
+            #var =  var.squeeze()
+            initial_state = target.clone()[0]
 
-initial_uncertainty = 0.1
-model = Ricker_Ensemble(params=initial_params, noise = initial_noise, initial_uncertainty = initial_uncertainty)
+            optimizer.zero_grad()
 
-optimizer = torch.optim.Adam([{'params':model.model_params}], lr=0.0001)
+            output, output_sigma = model(initial_state, temp)
 
-criterion = torch.nn.MSELoss()
-criterion2 = sCRPS()
-criterion3 = MQLoss(quantiles = [0.4, 0.6])
-criterion4 = QuantileLoss(0.5) # Pinball Loss
+            if loss_fun == 'mse':
+                loss = criterion(output, target)
+                loss = torch.sum(loss) / step_length
+            elif loss_fun == 'crps':
+                # loss = torch.zeros((1), requires_grad=True).clone()
+                loss = torch.stack([crps_loss(output[:,i].squeeze(), target[i]) for i in range(step_length)])
+                loss = torch.sum(loss)/step_length
+            elif loss_fun == 'quantile':
+                loss = torch.stack([criterion4(target[i], output[:,i].squeeze()) for i in range(step_length)])
+                loss = torch.sum(loss) / step_length
+            elif loss_fun == 'mquantile':
+                pass
+            elif loss_fun == 'gaussian':
+                loss = criterion5(output, target, output_sigma)
 
-losses = []
-for epoch in range(25):
-    for batch in trainloader:
+            loss.backward()
+            losses.append(loss.clone())
+            optimizer.step()
 
-        target, temp = batch
-        target = target.squeeze()
-        initial_state = target.clone()[0]
+    return losses
 
-        optimizer.zero_grad()
-
-        output = model(initial_state, temp)
-
-        if loss_fun == 'mse':
-            loss = criterion(output, target)
-            loss = torch.sum(loss) / step_length
-        elif loss_fun == 'crps':
-            # loss = torch.zeros((1), requires_grad=True).clone()
-            loss = torch.stack([crps_loss(output[:,i].squeeze(), target[i]) for i in range(step_length)])
-            loss = torch.sum(loss)/step_length
-        elif loss_fun == 'quantile':
-            loss = torch.stack([criterion4(target[i], output[:,i].squeeze()) for i in range(step_length)])
-            loss = torch.sum(loss) / step_length
-        elif loss_fun == 'mquantile':
-            pass
-
-        loss.backward()
-        losses.append(loss.clone())
-        optimizer.step()
-
-def plot_losses(losses, saveto=''):
-
-    ll = torch.stack(losses).detach().numpy()
+def plot_losses(losses, loss_fun, log=True, saveto=''):
+    if log:
+        ll = np.log(torch.stack(losses).detach().numpy())
+    else:
+        ll = torch.stack(losses).detach().numpy()
     plt.plot(ll)
     plt.ylabel(f'{loss_fun} loss')
     plt.xlabel(f'Epoch')
     plt.savefig(os.path.join(saveto, 'losses.pdf'))
-    plt.close()
 
 def save_fit(dictionary, filename, losses, directory_path):
 
@@ -366,95 +402,258 @@ def save_fit(dictionary, filename, losses, directory_path):
 
     plot_losses(losses, directory_path)
 
+def plot_posterior(df, saveto=''):
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10, 8))
+    axes[0, 0].hist(df["alpha"], bins=10, edgecolor='black')
+    axes[0, 0].set_title("Histogram of alpha")
+    axes[0, 1].hist(df["beta"], bins=10, edgecolor='black')
+    axes[0, 1].set_title("Histogram of beta")
+    axes[1, 0].hist(df["bx"], bins=10, edgecolor='black')
+    axes[1, 0].set_title("Histogram of bx")
+    axes[1, 1].hist(df["cx"], bins=10, edgecolor='black')
+    axes[1, 1].set_title("Histogram of cx")
+    plt.tight_layout()
+    plt.show()
+    plt.savefig(os.path.join(saveto, 'posterior.pdf'))
 
-print(model.get_fit())
-fm = model.get_fit()
-save_fit(fm, filename='params', losses=losses, directory_path=f'results/fit/{scenario}_{process}_{loss_fun}')
+def set_parameters(process = 'stochastic', scenario = 'chaotic'):
 
-params = [v for v in fm.values()][:4]
-if (not initial_noise is None) & (not initial_uncertainty is None):
-    modelinit = Ricker_Ensemble(params = initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
-    modelfit = Ricker_Ensemble(params = params, noise=fm['sigma'], initial_uncertainty=fm['phi'])
-elif (not initial_noise is None) & (initial_uncertainty is None):
-    modelinit = Ricker_Ensemble(params=initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
-    modelfit = Ricker_Ensemble(params=params, noise=fm['sigma'], initial_uncertainty=None)
-elif (initial_noise is None) & (not initial_uncertainty is None):
-    modelinit = Ricker_Ensemble(params=initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
-    modelfit = Ricker_Ensemble(params=params, noise=None, initial_uncertainty=fm['phi'])
-else:
-    modelinit = Ricker_Ensemble(params=initial_params, noise=initial_noise, initial_uncertainty=initial_uncertainty)
-    modelfit = Ricker_Ensemble(params=params, noise=None, initial_uncertainty=None)
+    if scenario == 'chaotic':
+        observation_params = [1.08, 1, 0.021, 0.41, 0.5, 1.06,  1, 0.02, 0.62, 0.72] # for chaotic, set r1 = 0.18 and r2 = 0.16 to r1 = 1.08 and r2 = 1.06
+        initial_params = [0.95, 1.0, 0.39, 0.44]
+    elif scenario == 'nonchaotic':
+        observation_params = [0.18, 1, 0.021, 0.41, 0.5, 0.16, 1, 0.02, 0.62, 0.72]
+        initial_params = [0.087132, 0.865437, 0.34348, 0.315365]  # Take mean values from previous runs as prior means.
+    if process == 'stochastic':
+        true_noise =  0.2 # None # [1]
+        initial_noise = 0.05  # None # [0.01]
+    elif process == 'deterministic':
+        true_noise = 0.2
+        initial_noise = None  # [0.01]
 
-yinit = modelinit.forward(N0=1, Temp=temperature).detach().numpy()
-ypreds = modelfit.forward(N0=1, Temp=temperature).detach().numpy()
+    return observation_params, initial_params, true_noise, initial_noise
+# Create observations
+def create_observations(years, observation_params, true_noise):
+    timesteps = 365*years
+    trainsteps = 365*(years-1)
+    teststeps = 365*(1)
+    temperature = simulate_temperature(timesteps=timesteps)
+    #temperature = standardize(temperature)
 
-plot_fit(yinit, ypreds, y, scenario=f'{process}_{scenario}', loss_fun=loss_fun)
+    observation_model = Ricker_Predation(params = observation_params, noise = true_noise)
+    dyn_observed = observation_model(Temp = temperature)
+    y = dyn_observed[0,:].clone().detach().requires_grad_(True)
+    y_train, y_test = y[:trainsteps], y[trainsteps:]
+    temp_train, temp_test = temperature[:trainsteps], temperature[trainsteps:]
+    # Create climatology
+    climatology = y_train.view((years-1), 365)
+    sigma = np.std(climatology.detach().numpy(), axis=0)
+    sigma_train = np.tile(sigma, reps=(years-1))
+    sigma_test = sigma
+
+    plt.plot(y_test.detach().numpy())
+    plt.show()
+    plt.close()
+
+    return y_train, y_test, sigma_train, sigma_test, temp_train, temp_test, climatology
+def fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples = 20, epochs = 15, loss_fun = 'mse', step_length = 2):
+
+    fitted_values = []
+
+    for i in range(samples):
+        # Sample from prior
+        ip = [np.random.normal(i, 0.1, 1)[0] for i in initial_params]
+        model = Ricker_Ensemble(params=ip, noise=initial_noise, initial_uncertainty=None)
+        losses = train(y_train, sigma_train, x_train, model, epochs=epochs, loss_fun = loss_fun, step_length = step_length)
+        print(model.get_fit())
+        fm = model.get_fit()
+        fitted_values.append(fm)
+
+    return fitted_values, losses
+
+def forecast_fitted(y_test, x_test, fitted_values, initial_params, initial_noise, initial_uncertainty = None):
+    yinit = []
+    ypreds = []
+    modelfits = []
+    for fm in fitted_values:
+        params = [v for v in fm.values()][:4]
+        modelinit = Ricker_Ensemble(params = initial_params, noise=initial_noise, initial_uncertainty=None)
+        modelfit = Ricker_Ensemble(params = params, noise=fm['sigma'], initial_uncertainty=fm['phi'])
+        modelfits.append(modelfit)
+        if initial_uncertainty is not None:
+            Ninit = np.random.normal(y_test[0].detach().numpy(), y_test[0].detach().numpy()*initial_uncertainty, 10)
+            yinit.append(np.array([modelinit.forward(N0=Ninit[i], Temp=x_test).detach().numpy() for i in range(len(Ninit))]))
+            ypreds.append(np.array([modelfit.forward(N0=Ninit[i], Temp=x_test).detach().numpy() for i in range(len(Ninit))]))
+        else:
+            yinit.append(modelinit.forward(N0=y_test[0], Temp=x_test).detach().numpy())
+            ypreds.append(modelfit.forward(N0=y_test[0], Temp=x_test).detach().numpy())
+    if initial_uncertainty is not None:
+        try:
+            yinit = np.stack(yinit).squeeze()
+            yinit = yinit.reshape(-1, yinit.shape[2])
+            ypreds = np.stack(ypreds).squeeze()
+            ypreds = ypreds.reshape(-1, ypreds.shape[2])
+        except IndexError:
+            yinit = np.array(yinit).squeeze()
+            ypreds = np.array(ypreds).squeeze()
+    else:
+        yinit = np.array(yinit).squeeze()
+        ypreds = np.array(ypreds).squeeze()
+    return yinit, ypreds, modelfits
+
+save = True
+
+observation_params, initial_params, true_noise, initial_noise = set_parameters(process = 'stochastic', scenario = 'chaotic')
+y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = create_observations(years = 5, observation_params= observation_params, true_noise = true_noise)
+fitted_values, losses = fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples=1, epochs=20, loss_fun = 'gaussian', step_length = 10)
+
+if save:
+    pd.DataFrame(fitted_values).to_csv('results/fit/chaotic_stochastic_mse/fitted_values.csv')
+    plot_posterior(pd.DataFrame(fitted_values), saveto='results/fit/chaotic_stochastic_mse')
+    plot_losses(losses, loss_fun='mse', saveto='results/fit/chaotic_stochastic_mse/fitted_values.csv')
+
+yinit, ypreds, modelfits = forecast_fitted(y_test, x_test, fitted_values, initial_params, initial_noise, initial_uncertainty = 0.01)
+ypreds = ypreds[~np.any(np.isnan(ypreds), axis=1),:]
+
+temporal_error = {'MSE': mse(y_test.detach().numpy()[np.newaxis,:], ypreds),
+                  'MSE_clim': mse(y_test.detach().numpy()[np.newaxis,:], climatology.detach().numpy())}
+plot_fit(yinit, ypreds, y_test, scenario=f"{'stochastic'}_{'chaotic'}", loss_fun='mse', clim=climatology,fh_metric=temporal_error, save=True)
+
+sr = [shapiro(ypreds[:,i])[1] for i in range(ypreds.shape[1])]
+plt.plot(sr)
+
+
+fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(8, 8), sharex=True)
+for i in range(5):
+    x = ypreds[:,i]
+    mu = x.mean()
+    sigma = x.std()
+    axes[i].hist(x, alpha=0.5)
+    xs = np.linspace(0.9, 1.05, num=100)
+    axes[i].plot(xs, stats.norm.pdf(xs, mu, sigma))
+    axes[i].vlines(x = y_test[i].detach().numpy(), ymin = 0, ymax = 50)
+    axes[i].vlines(x = climatology[:,i].detach().numpy(), ymin = 0, ymax = 50, colors='lightblue')
+
+for i in range(5):
+    print('Ensemble', ps.crps_ensemble(y_test[i].detach().numpy(), ypreds[:,i]))
+    print('Climatology', ps.crps_ensemble(y_test[i].detach().numpy(), climatology.detach().numpy()[:,i]))
 
 #=============================#
 # Forecasting with the fitted #
 #=============================#
+def get_fh(fh_metric, ypreds, y_test, climatology, skillscore = 'absolute', fh_def = 'actual'):
 
-class ForecastData(Dataset):
-    """
-        A very simple dataset class for generating forecast data sets of different lengths.
-    """
-    def __init__(self, y, temp, climatology = None):
-        self.y = y
-        self.temp = temp
-        self.climatology = climatology
+    forecast = ypreds
+    states = y_test.detach().numpy()
+    clim = climatology.detach().numpy()
+    perfect_observation = np.mean(forecast, axis=0)
 
-    def __len__(self) -> int:
-        return len(self.y)-1
+    if fh_metric == 'crps':
+        performance = [CRPS(forecast[:,i], states[i]).compute()[0] for i in range(forecast.shape[1])]
+        performance_perfect = [CRPS(forecast[:,i], perfect_observation[i]).compute()[0] for i in range(forecast.shape[1])]
+        performance_ref = [CRPS(clim[:, i], states[i]).compute()[0] for i in range(clim.shape[1])]
+        performance_ref_perfect = [CRPS(clim[:, i], perfect_observation[i]).compute()[0] for i in range(clim.shape[1])]
 
-    def __getitem__(self, index: int): #  -> Tuple[torch.Tensor, torch.Tensor]
-        if not self.climatology is None:
-            return self.y[index:len(self.y)], self.temp[index:len(self.temp)], self.climatology[:,index:len(self.y)]
+    elif fh_metric == 'nashsutcliffe':
+        performance = [nash_sutcliffe(states[np.newaxis,:], forecast[:,i]) for i in range(forecast.shape[1])]
+        performance_ref = [np.mean([nash_sutcliffe(states[:k+1], clim[j, :k+1]) for j in range(forecast.shape[0])])  for k in range(clim.shape[1]-1)]
+
+    elif fh_metric == 'abs':
+        performance = np.mean(absolute_differences(states[np.newaxis,:], forecast), axis=0)
+        performance_perfect = np.mean(absolute_differences(perfect_observation, forecast), axis=0)
+        performance_ref =  np.mean(absolute_differences(states[np.newaxis,:], clim), axis=0)
+        performance_ref_perfect =  np.mean(absolute_differences(perfect_observation, clim), axis=0)
+
+    elif fh_metric == 'mse':
+        performance = mse(states[np.newaxis,:], forecast)
+        performance_perfect = mse(perfect_observation, forecast)
+        performance_ref = mse(states[np.newaxis,:], clim)
+        performance_ref_perfect = mse(perfect_observation, clim)
+
+    elif fh_metric == 'rmse':
+        performance = rmse(states[np.newaxis,:], forecast)
+        performance_perfect = rmse(perfect_observation, forecast)
+        performance_ref = rmse(states[np.newaxis,:], clim)
+        performance_ref_perfect = rmse(perfect_observation, clim)
+
+    elif fh_metric == 'rsquared':
+        performance = [[r2_score(states[:j], forecast[i,:j]) for i in range(forecast.shape[0])] for j in range(1,forecast.shape[1])]
+        performance_ref = [[r2_score(states[:j], clim[i,:j]) for i in range(clim.shape[0])] for j in range(1,clim.shape[1])]
+
+    elif fh_metric == 'corr':
+        w = 3
+        performance = np.mean(rolling_corrs(states[np.newaxis,:], forecast, window=w), axis=0)
+        performance_perfect = np.mean(rolling_corrs(perfect_observation[np.newaxis,:], forecast, window=w), axis=0)
+        performance_ref = np.mean(rolling_corrs(states[np.newaxis,:], clim, window=w), axis=0)
+        performance_ref_perfect = np.mean(rolling_corrs(perfect_observation[np.newaxis,:], clim, window=w), axis=0)
+
+    performance = np.array(performance)
+    performance_perfect = np.array(performance_perfect)
+    performance_ref = np.array(performance_ref)
+    performance_ref_perfect = np.array(performance_ref_perfect)
+    if skillscore =='absolute':
+        if fh_def == 'actual':
+            skill = 1 - (performance/performance_ref) # If mse of climatology is larger, term is larger zero.
         else:
-            return self.y[index:len(self.y)], self.temp[index:len(self.temp)]
-def nash_sutcliffe(observed, modeled):
-    """
-    Calculate Nash-Sutcliffe Efficiency (NSE).
-    """
-    observed = np.array(observed)
-    modeled = np.array(modeled)
-    mean_observed = np.mean(observed)
+            skill = 1 - (performance_perfect/performance_ref_perfect)
+        plt.plot(skill)
+        if fh_metric == "crps":
+            fh = np.argmax(skill < 0)
+        elif fh_metric == 'abs':
+            fh = np.argmax(skill < 0)
+        elif fh_metric == 'mse':
+            fh = np.argmax(skill < 0)
+        elif fh_metric == 'rmse':
+            fh = np.argmax(skill < 0)
+        elif fh_metric == 'nashsutcliffe':
+            fh = np.argmax(skill < 0)
+        elif fh_metric == 'corr':
+            if fh_def == 'actual':
+                fh = np.argmax(performance < 0.5)
+            else:
+                fh = np.argmax(performance_perfect < 0.5)
 
-    # Calculate sum of squared differences between observed and modeled values
-    ss_diff = np.sum((observed - modeled) ** 2)
-    # Calculate sum of squared differences between observed and mean of observed values
-    ss_total = np.sum((observed - mean_observed) ** 2)
+        return fh
+    elif skillscore =='relative':
+        if fh_def == 'actual':
+            skill = (performance_ref - performance)/ performance_ref # If mse of climatology is larger, term is larger zero.
+        else:
+            skill = None
 
-    # Nash-Sutcliffe Efficiency
-    nse = 1 - (ss_diff / ss_total)
+        return skill
 
-    return nse
+metrics = ['corr', 'abs', 'mse', 'crps']
+fhs_a = [get_fh(m, ypreds, y_test, climatology, fh_def='actual') for m in metrics]
+fhs_p = [get_fh(m, ypreds, y_test,climatology, fh_def='perfect') for m in metrics]
 
-# Create climatology
-years = 15
-timesteps_clim = 365*years
-temperature_clim = simulate_temperature(timesteps=timesteps_clim)
-clim_model = Ricker_Predation(params = observation_params, noise = true_noise)
-clim_obs = clim_model(Temp = temperature_clim)
-clim_mat = clim_obs[0,:].view(years, 365)
+plt.scatter(metrics, fhs_p, marker='D', color='red', label='estimate')
+plt.scatter(metrics, fhs_a, marker='D', color='blue', label='actual')
+plt.legend()
 
-y_test, temp_test = y[365:], temperature[365:]
-temporal_error = {'MSE': mse(y_test.detach().numpy()[np.newaxis,:], ypreds[:,365:]),
-                  'MSE_clim': mse(y_test.detach().numpy()[np.newaxis,:], clim_mat.detach().numpy())}
-plot_fit(yinit[:,365:], ypreds[:,365:], y_test, scenario=f'{process}_{scenario}', loss_fun=loss_fun, clim=clim_mat,fh_metric=temporal_error, save=True)
+skill = get_fh('crps', ypreds, y_test, climatology,skillscore='relative', fh_def='actual')
+#=====================================================#
+# Forecasting with the fitted at different lead times #
+#=====================================================#
 
-data = ForecastData(y_test,temp_test, clim_mat)
+data = ForecastData(y_test,x_test, climatology)
 forecastloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
 
 mat_ricker = np.full((len(y_test), len(y_test)), np.nan)
 mat_climatology = np.full((len(y_test), len(y_test)), np.nan)
 
 i = 0
+fh_metric = 'correlation'
 for states, temps, clim in forecastloader:
+
     print('I is: ', i)
     N0 = states[:,0]
     clim = clim.squeeze().detach().numpy()
-    forecast = modelfit.forward(N0, temps).detach().numpy()
+    forecast = []
+    for modelfit in modelfits:
+        forecast.append(modelfit.forward(N0, temps).detach().numpy())
+    forecast = np.array(forecast).squeeze()
     states = states.squeeze().detach().numpy()
+
     if fh_metric == 'crps':
         performance = [CRPS(forecast[:,i], states[i]).compute()[0] for i in range(forecast.shape[1])]
         performance_ref = [CRPS(clim[:, i], states[i]).compute()[0] for i in range(clim.shape[1])]
@@ -470,6 +669,14 @@ for states, temps, clim in forecastloader:
         performance_ref = mse(states[np.newaxis,:], clim)
         mat_ricker[i, i:] = performance
         mat_climatology[i, i:] = performance_ref
+    elif fh_metric == 'correlation':
+        w = 3
+        performance = np.mean(rolling_corrs(states[np.newaxis,:], forecast, window=w), axis=0)
+        performance_ref = np.mean(rolling_corrs(states[np.newaxis,:], clim, window=w), axis=0)
+        mat_ricker[i, :i + w] = np.nan
+        mat_ricker[i, i+w:] = performance
+        mat_climatology[i, :i + w] = np.nan
+        mat_climatology[i, i+w:] = performance_ref
     i += 1
 
 mat_ricker[np.isinf(mat_ricker)] = np.nan
@@ -483,7 +690,7 @@ plt.imshow(mat_ricker_plot)
 plt.colorbar()
 plt.xlabel('Day of year')
 plt.ylabel('Forecast length')
-plt.savefig(f'plots/horizonmap_ricker_{process}_{scenario}_{fh_metric}fh.pdf')
+#plt.savefig(f'plots/horizonmap_ricker_{process}_{scenario}_{fh_metric}fh.pdf')
 plt.close()
 
 mat_climatology[np.isinf(mat_climatology)] = np.nan
@@ -497,16 +704,29 @@ plt.imshow(mat_climatology_plot)
 plt.colorbar()
 plt.xlabel('Day of year')
 plt.ylabel('Forecast length')
-plt.savefig(f'plots/horizonmap_climatology_{process}_{scenario}_{fh_metric}fh.pdf')
+#plt.savefig(f'plots/horizonmap_climatology_{process}_{scenario}_{fh_metric}fh.pdf')
 plt.close()
 
-fig, ax = plt.subplots()
-skill = 1 - (mat_ricker/mat_climatology) # If mse of climatology is larger, term is larger zero.
-fh = skill <= 0 # FH of the ricker is reached when mse of climatology drops below ricker mse
-mask = np.isfinite(skill)
-skill[mask] = fh[mask]
-plt.imshow(skill, cmap='autumn_r')
-plt.colorbar()
-plt.xlabel('Day of year')
-plt.ylabel('Forecast length')
-plt.savefig(f'plots/horizonmap_skill_{process}_{scenario}_{fh_metric}fh.pdf')
+if fh_metric != 'correlation':
+    fig, ax = plt.subplots()
+    skill = 1 - (mat_ricker/mat_climatology) # If mse of climatology is larger, term is larger zero.
+    fh = skill <= 0 # FH of the ricker is reached when mse of climatology drops below ricker mse
+    mask = np.isfinite(skill)
+    skill[mask] = fh[mask]
+    plt.imshow(skill, cmap='autumn_r')
+    plt.colorbar()
+    plt.xlabel('Day of year')
+    plt.ylabel('Forecast length')
+    #plt.savefig(f'plots/horizonmap_skill_{process}_{scenario}_{fh_metric}fh.pdf')
+else:
+    fig, ax = plt.subplots()
+    skill = mat_ricker    # If mse of climatology is larger, term is larger zero.
+    fh = skill < 0.5 # FH of the ricker is reached when mse of climatology drops below ricker mse
+    mask = np.isfinite(skill)
+    skill[mask] = fh[mask]
+    plt.imshow(skill, cmap='autumn_r')
+    plt.colorbar()
+    plt.xlabel('Day of year')
+    plt.ylabel('Forecast length')
+
+plt.plot([np.argmax(skill[i,i:]) for i in range(skill.shape[0])])

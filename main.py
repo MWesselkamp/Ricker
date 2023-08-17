@@ -4,16 +4,9 @@ import matplotlib.pyplot as plt
 from simulations import generate_data
 from references import diurnal_climatology
 from metrics import rolling_corrs, rolling_crps
+from utils import sample_ensemble_member
 
 np.random.seed(42)
-
-def sample_ensemble_member(xsim):
-
-    index = np.random.randint(0, xsim.shape[0], 1)
-    control = xsim[index, :]
-    ensemble = np.delete(xsim, index, axis=0)
-
-    return control, ensemble, index
 
 def metric_map_intrinsic(growth_rates, timesteps, doy_inits, metric, bootstrap_samples):
 

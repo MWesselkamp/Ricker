@@ -79,3 +79,17 @@ def simulate_temperature(timesteps, add_trend=False, add_noise=False):
     y = np.round(y, 4)
 
     return y
+
+def standardize(y):
+
+    ys = (y - np.mean(y))/np.std(y)
+
+    return ys
+
+def sample_ensemble_member(ensemble):
+
+    index = np.random.randint(0, ensemble.shape[0], 1)
+    control = ensemble[index, :]
+    ensemble = np.delete(ensemble, index, axis=0)
+
+    return control, ensemble, index
