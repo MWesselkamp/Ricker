@@ -193,10 +193,13 @@ class Ricker_Ensemble(nn.Module):
         if not self.noise is None:
             for i in range(len(Temp) - 1):
                 out[:,i + 1] = out.clone()[:,i] * torch.exp(
-                    alpha * (1 - beta * out.clone()[:,i] + bx * Temp[i] + cx * Temp[i] ** 2)) \
-                             + sigma * torch.normal(mean=torch.tensor([0.0, ]), std=torch.tensor([.1, ]))
-            #out_sigma = torch.full_like(out, torch.std(out).item())
-            return out, sigma
+                    alpha * (1 - beta * out.clone()[:,i] + bx * Temp[i] + cx * Temp[i] ** 2))# \
+                          #   + sigma * torch.normal(mean=torch.tensor([0.0, ]), std=torch.tensor([1.0, ]))
+            var = sigma * 2#torch.normal(mean=torch.tensor([0.0, ]), std=torch.tensor([1.0, ]))
+            out_upper = out + torch.repeat_interleave(var, len(Temp)) #+ torch.full_like(out, var.item())
+            out_lower = out - torch.repeat_interleave(var, len(Temp))  #- torch.full_like(out, var.item())
+
+            return out, [out_upper, out_lower]
 
         else:
             for i in range(len(Temp) - 1):
@@ -214,6 +217,47 @@ class Ricker_Ensemble(nn.Module):
                "sigma": self.noise if self.noise is None else self.model_params[4].item(), \
                "phi": self.initial_uncertainty if self.initial_uncertainty is None else (self.model_params[5].item() if self.noise is not None else self.model_params[4].item())
                 }
+
+    def forecast(self, N0, Temp, ensemble_size=15):
+
+        if (not self.noise is None) & (not self.initial_uncertainty is None):
+            alpha, beta, bx, cx, sigma, phi = self.model_params
+        elif (not self.noise is None) & (self.initial_uncertainty is None):
+            alpha, beta, bx, cx, sigma = self.model_params
+        elif (self.noise is None) & (not self.initial_uncertainty is None):
+            alpha, beta, bx, cx, phi = self.model_params
+        else:
+            alpha, beta, bx, cx = self.model_params
+
+        Temp = Temp.squeeze()
+
+        if not self.initial_uncertainty is None:
+            initial = N0 + phi * torch.normal(torch.zeros((ensemble_size)),
+                                              torch.repeat_interleave(torch.tensor([.1, ]), ensemble_size))
+            out = torch.zeros((len(initial), len(Temp)), dtype=torch.double)
+        else:
+            initial = N0
+            out = torch.zeros((1, len(Temp)), dtype=torch.double)
+
+        out[:, 0] = initial  # initial value
+
+        if not self.noise is None:
+            for i in range(len(Temp) - 1):
+                out[:, i + 1] = out.clone()[:, i] * torch.exp(
+                    alpha * (1 - beta * out.clone()[:, i] + bx * Temp[i] + cx * Temp[i] ** 2))  \
+                    + sigma * torch.normal(mean=torch.tensor([0.0, ]), std=torch.tensor([0.1, ]))
+
+            #out = out + sigma * torch.normal(mean=torch.tensor([0.0, ]), std=torch.tensor([1.0, ]))
+
+            return out
+
+        else:
+            for i in range(len(Temp) - 1):
+                out[:, i + 1] = out.clone()[:, i] * torch.exp(
+                    alpha * (1 - beta * out.clone()[:, i] + bx * Temp[i] + cx * Temp[i] ** 2))
+
+            return out
+
 
 class SimODEData(Dataset):
     """
@@ -240,23 +284,31 @@ class ForecastData(Dataset):
     """
         A very simple dataset class for generating forecast data sets of different lengths.
     """
-    def __init__(self, y, temp, climatology = None, lead_times = 'all'):
+    def __init__(self, y, temp, climatology = None, forecast_days = 'all', lead_time = None):
         self.y = y
         self.temp = temp
         self.climatology = climatology
-        self.lead_times = lead_times
+        self.forecast_days = forecast_days
+        self.lead_time = lead_time
 
     def __len__(self) -> int:
-        if self.lead_times == 'all':
+        if self.forecast_days == 'all':
             return len(self.y)-1
         else:
-            return 1
+            return self.forecast_days
 
     def __getitem__(self, index: int): #  -> Tuple[torch.Tensor, torch.Tensor]
-        if not self.climatology is None:
-            return self.y[index:len(self.y)], self.temp[index:len(self.temp)], self.climatology[:,index:len(self.y)]
+        if self.forecast_days == 'all':
+            if not self.climatology is None:
+                return self.y[index:len(self.y)], self.temp[index:len(self.temp)], self.climatology[:,index:len(self.y)]
+            else:
+                return self.y[index:len(self.y)], self.temp[index:len(self.temp)]
         else:
-            return self.y[index:len(self.y)], self.temp[index:len(self.temp)]
+            if not self.climatology is None:
+                return self.y[index:(index+self.lead_time)], self.temp[index:(index+self.lead_time)], self.climatology[:,index:(index+self.lead_time)]
+            else:
+                return self.y[index:(index+self.lead_time)], self.temp[index:(index+self.lead_time)]
+
 def nash_sutcliffe(observed, modeled):
     """
     Calculate Nash-Sutcliffe Efficiency (NSE).
@@ -348,27 +400,31 @@ def train(y_train,sigma_train, x_train, model, epochs, loss_fun = 'mse', step_le
 
             target, var, temp = batch
             target = target.squeeze()
-            #var =  var.squeeze()
+
+            target_upper = target + 2*torch.std(target).item()
+            target_lower = target - 2*torch.std(target).item()
+
             initial_state = target.clone()[0]
 
             optimizer.zero_grad()
 
             output, output_sigma = model(initial_state, temp)
 
-            if loss_fun == 'mse':
+            if (loss_fun == 'mse') & (sigma_train is not None):
+                loss = criterion(output, target) + criterion(output_sigma[0], target_upper) + criterion(output_sigma[1], target_lower)
+            elif (loss_fun == 'mse') & (sigma_train is not None):
                 loss = criterion(output, target)
-                loss = torch.sum(loss) / step_length
             elif loss_fun == 'crps':
                 # loss = torch.zeros((1), requires_grad=True).clone()
                 loss = torch.stack([crps_loss(output[:,i].squeeze(), target[i]) for i in range(step_length)])
-                loss = torch.sum(loss)/step_length
             elif loss_fun == 'quantile':
                 loss = torch.stack([criterion4(target[i], output[:,i].squeeze()) for i in range(step_length)])
-                loss = torch.sum(loss) / step_length
             elif loss_fun == 'mquantile':
                 pass
             elif loss_fun == 'gaussian':
                 loss = criterion5(output, target, output_sigma)
+
+            loss = torch.sum(loss) / step_length
 
             loss.backward()
             losses.append(loss.clone())
@@ -478,15 +534,15 @@ def forecast_fitted(y_test, x_test, fitted_values, initial_params, initial_noise
     for fm in fitted_values:
         params = [v for v in fm.values()][:4]
         modelinit = Ricker_Ensemble(params = initial_params, noise=initial_noise, initial_uncertainty=None)
-        modelfit = Ricker_Ensemble(params = params, noise=fm['sigma'], initial_uncertainty=fm['phi'])
+        modelfit = Ricker_Ensemble(params = params, noise=fm['sigma'], initial_uncertainty=None)
         modelfits.append(modelfit)
         if initial_uncertainty is not None:
             Ninit = np.random.normal(y_test[0].detach().numpy(), y_test[0].detach().numpy()*initial_uncertainty, 10)
-            yinit.append(np.array([modelinit.forward(N0=Ninit[i], Temp=x_test).detach().numpy() for i in range(len(Ninit))]))
-            ypreds.append(np.array([modelfit.forward(N0=Ninit[i], Temp=x_test).detach().numpy() for i in range(len(Ninit))]))
+            yinit.append(np.array([modelinit.forecast(N0=Ninit[i], Temp=x_test).detach().numpy() for i in range(len(Ninit))]))
+            ypreds.append(np.array([modelfit.forecast(N0=Ninit[i], Temp=x_test).detach().numpy() for i in range(len(Ninit))]))
         else:
-            yinit.append(modelinit.forward(N0=y_test[0], Temp=x_test).detach().numpy())
-            ypreds.append(modelfit.forward(N0=y_test[0], Temp=x_test).detach().numpy())
+            yinit.append(modelinit.forecast(N0=y_test[0], Temp=x_test).detach().numpy())
+            ypreds.append(modelfit.forecast(N0=y_test[0], Temp=x_test).detach().numpy())
     if initial_uncertainty is not None:
         try:
             yinit = np.stack(yinit).squeeze()
@@ -504,32 +560,40 @@ def forecast_fitted(y_test, x_test, fitted_values, initial_params, initial_noise
 save = True
 
 observation_params, initial_params, true_noise, initial_noise = set_parameters(process = 'stochastic', scenario = 'chaotic')
-y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = create_observations(years = 5, observation_params= observation_params, true_noise = true_noise)
-fitted_values, losses = fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples=1, epochs=20, loss_fun = 'gaussian', step_length = 10)
+y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = create_observations(years = 10, observation_params= observation_params, true_noise = true_noise)
+fitted_values, losses = fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples=10, epochs=20, loss_fun = 'mse', step_length = 10)
+posterior = pd.DataFrame(fitted_values)
+
+fitted_pars = posterior.mean().values
+ip = np.array([np.random.normal(i, 0.01, 20) for i in fitted_pars])
+keys = ['alpha', 'beta', 'bx', 'cx', 'sigma', 'phi']
+ip_samples = [dict(zip(keys, ip[:,column])) for column in range(ip.shape[1])]
 
 if save:
-    pd.DataFrame(fitted_values).to_csv('results/fit/chaotic_stochastic_mse/fitted_values.csv')
-    plot_posterior(pd.DataFrame(fitted_values), saveto='results/fit/chaotic_stochastic_mse')
-    plot_losses(losses, loss_fun='mse', saveto='results/fit/chaotic_stochastic_mse/fitted_values.csv')
+    pd.DataFrame(fitted_values).to_csv('results/chaotic_stochastic/fitted_values.csv')
+    plot_posterior(posterior, saveto='results/chaotic_stochastic_mse')
+    plot_losses(losses, loss_fun='mse', saveto='results/chaotic_stochastic/fitted_values.csv')
 
-yinit, ypreds, modelfits = forecast_fitted(y_test, x_test, fitted_values, initial_params, initial_noise, initial_uncertainty = 0.01)
+yinit, ypreds, modelfits = forecast_fitted(y_test, x_test, ip_samples, initial_params, initial_noise, initial_uncertainty = 0.001)
 ypreds = ypreds[~np.any(np.isnan(ypreds), axis=1),:]
 
-temporal_error = {'MSE': mse(y_test.detach().numpy()[np.newaxis,:], ypreds),
+pointwise_mse = {'MSE': mse(y_test.detach().numpy()[np.newaxis,:], ypreds),
                   'MSE_clim': mse(y_test.detach().numpy()[np.newaxis,:], climatology.detach().numpy())}
-plot_fit(yinit, ypreds, y_test, scenario=f"{'stochastic'}_{'chaotic'}", loss_fun='mse', clim=climatology,fh_metric=temporal_error, save=True)
+pointwise_crps = {'CRPS': [CRPS(ypreds[:,i], y_test.detach().numpy()[i]).compute()[0] for i in range(ypreds.shape[1])],
+                  'CRPS_clim': [CRPS(climatology.detach().numpy()[:,i], y_test.detach().numpy()[i]).compute()[0] for i in range(ypreds.shape[1])]}
+plot_fit(yinit, ypreds[:40,:], y_test, scenario=f"{'chaotic'}_{'stochastic'}", loss_fun='mse', clim=climatology,fh_metric1=pointwise_mse,fh_metric2=pointwise_crps, save=True)
 
 sr = [shapiro(ypreds[:,i])[1] for i in range(ypreds.shape[1])]
 plt.plot(sr)
 
 
-fig, axes = plt.subplots(nrows=5, ncols=1, figsize=(8, 8), sharex=True)
-for i in range(5):
+fig, axes = plt.subplots(nrows=7, ncols=1, figsize=(6, 8), sharex=True)
+for i in range(7):
     x = ypreds[:,i]
     mu = x.mean()
     sigma = x.std()
     axes[i].hist(x, alpha=0.5)
-    xs = np.linspace(0.9, 1.05, num=100)
+    xs = np.linspace(0.93, 1.05, num=100)
     axes[i].plot(xs, stats.norm.pdf(xs, mu, sigma))
     axes[i].vlines(x = y_test[i].detach().numpy(), ymin = 0, ymax = 50)
     axes[i].vlines(x = climatology[:,i].detach().numpy(), ymin = 0, ymax = 50, colors='lightblue')
@@ -541,7 +605,7 @@ for i in range(5):
 #=============================#
 # Forecasting with the fitted #
 #=============================#
-def get_fh(fh_metric, ypreds, y_test, climatology, skillscore = 'absolute', fh_def = 'actual'):
+def get_fh(fh_metric, ypreds, y_test, climatology, skillscore = True, fh_def = 'actual'):
 
     forecast = ypreds
     states = y_test.detach().numpy()
@@ -591,7 +655,7 @@ def get_fh(fh_metric, ypreds, y_test, climatology, skillscore = 'absolute', fh_d
     performance_perfect = np.array(performance_perfect)
     performance_ref = np.array(performance_ref)
     performance_ref_perfect = np.array(performance_ref_perfect)
-    if skillscore =='absolute':
+    if skillscore:
         if fh_def == 'actual':
             skill = 1 - (performance/performance_ref) # If mse of climatology is larger, term is larger zero.
         else:
@@ -614,23 +678,121 @@ def get_fh(fh_metric, ypreds, y_test, climatology, skillscore = 'absolute', fh_d
                 fh = np.argmax(performance_perfect < 0.5)
 
         return fh
-    elif skillscore =='relative':
+
+    else:
         if fh_def == 'actual':
-            skill = (performance_ref - performance)/ performance_ref # If mse of climatology is larger, term is larger zero.
+            proficiency = performance
         else:
-            skill = None
+            proficiency = performance_perfect
 
-        return skill
+        if fh_metric == "crps":
+            fh = np.argmax(proficiency > 0.05)
+        elif fh_metric == 'abs':
+            fh = np.argmax(proficiency > 0.1)
+        elif fh_metric == 'mse':
+            fh = np.argmax(proficiency > 0.1)
+        elif fh_metric == 'rmse':
+            fh = np.argmax(proficiency > 0.1)
+        elif fh_metric == 'nashsutcliffe':
+            fh = np.argmax(proficiency > 0.1)
+        elif fh_metric == 'corr':
+            fh = np.argmax(proficiency < 0.5)
 
-metrics = ['corr', 'abs', 'mse', 'crps']
-fhs_a = [get_fh(m, ypreds, y_test, climatology, fh_def='actual') for m in metrics]
-fhs_p = [get_fh(m, ypreds, y_test,climatology, fh_def='perfect') for m in metrics]
+        return fh
 
-plt.scatter(metrics, fhs_p, marker='D', color='red', label='estimate')
-plt.scatter(metrics, fhs_a, marker='D', color='blue', label='actual')
+metrics = ['corr', 'mse', 'abs', 'crps']
+fh_a = [get_fh(m, ypreds, y_test, climatology, skillscore=False,fh_def='actual') for m in metrics]
+fh_p = [get_fh(m, ypreds, y_test, climatology, skillscore=False,fh_def='perfect') for m in metrics]
+fhs_a = [get_fh(m, ypreds, y_test, climatology, skillscore=True, fh_def='actual') for m in metrics]
+fhs_p = [get_fh(m, ypreds, y_test,climatology, skillscore=True,fh_def='perfect') for m in metrics]
+pd.DataFrame([fh_a, fh_p, fhs_a, fhs_p], columns=metrics, index = ['fh_a', 'fh_p', 'fhs_a', 'fhs_p']).to_csv('results/chaotic_stochastic/horizons.csv')
+
+
+plt.scatter(metrics, fh_p, marker='D', color='red', label='$\hat{h}$')
+plt.scatter(metrics, fh_a, marker='D', color='blue', label='$h$')
+plt.scatter(metrics, fhs_p, marker='D', facecolors='none', edgecolors='red', label='$\hat{h}_{s}$')
+plt.scatter(metrics, fhs_a, marker='D', facecolors='none', edgecolors='blue', label='$h_{s}$')
+plt.ylabel('Forecast horizon')
+plt.xlabel('Metric')
 plt.legend()
+plt.savefig('results/chaotic_stochastic/horizons.pdf')
 
-skill = get_fh('crps', ypreds, y_test, climatology,skillscore='relative', fh_def='actual')
+#================================================#
+# Forecasting with the fitted at same lead times #
+#================================================#
+
+forecast_days = 110
+lead_time = 110
+data = ForecastData(y_test,x_test, climatology, forecast_days=forecast_days, lead_time=lead_time)
+forecastloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
+
+mat_ricker = np.full((lead_time, forecast_days), np.nan)
+mat_ricker_perfect = np.full((lead_time, forecast_days), np.nan)
+mat_climatology = np.full((lead_time, forecast_days), np.nan)
+mat_climatology_perfect = np.full((lead_time, forecast_days), np.nan)
+
+i = 0
+fh_metric = 'crps'
+for states, temps, clim in forecastloader:
+
+    print('I is: ', i)
+    N0 = states[:,0]
+    clim = clim.squeeze().detach().numpy()
+    forecast = []
+    for modelfit in modelfits:
+        forecast.append(modelfit.forecast(N0, temps).detach().numpy())
+    forecast = np.array(forecast).squeeze()
+    states = states.squeeze().detach().numpy()
+
+    if fh_metric == 'crps':
+        performance = [CRPS(forecast[:,i], states[i]).compute()[0] for i in range(forecast.shape[1])]
+        performance_ref = [CRPS(clim[:, i], states[i]).compute()[0] for i in range(clim.shape[1])]
+        mat_ricker[:, i] = performance
+        mat_climatology[:, i] = performance_ref
+
+        performance_perfect = [CRPS(forecast[:, i], forecast[:,i].mean(axis=0)).compute()[0] for i in
+                               range(forecast.shape[1])]
+        performance_climatology_perfect = [CRPS(clim[:, i], forecast[:, i].mean(axis=0)).compute()[0] for i in
+                               range(forecast.shape[1])]
+        mat_ricker_perfect[:, i] = performance_perfect
+        mat_climatology_perfect[:, i] = performance_climatology_perfect
+
+    i+=1
+
+fig, ax = plt.subplots(2, 3, figsize=(14, 7), sharey=False, sharex=False)
+
+heatmap0 = ax[0,0].imshow(mat_ricker.transpose()[0:,:])
+cb = plt.colorbar(heatmap0, ax=ax[0,0])
+cb.set_label('CRPS')
+ax[0,0].set_ylabel('Day of forecast initialization')
+ax[0,0].set_xlabel('Time horizon/Lead time')
+
+ax[0,1].imshow((mat_ricker.transpose()[0:,:] > 0.05))
+#plt.colorbar()
+ax[0,1].set_ylabel('Day of forecast initialization')
+ax[0,1].set_xlabel('Time horizon/Lead time')
+
+ax[0,2].imshow((mat_ricker.transpose()[0:,:] > mat_climatology.transpose()[0:,:]))
+#ax[0,2].colorbar()
+ax[0,2].set_ylabel('Day of forecast initialization')
+ax[0,2].set_xlabel('Time horizon/Lead time')
+
+heatmap1 = ax[1,0].imshow(mat_ricker_perfect.transpose()[0:,:])
+cb1 = plt.colorbar(heatmap1, ax=ax[1,0])
+cb1.set_label('CRPS')
+ax[1,0].set_ylabel('Day of forecast initialization')
+ax[1,0].set_xlabel('Time horizon/Lead time')
+
+ax[1,1].imshow((mat_ricker_perfect.transpose()[0:,:] > 0.05))
+#ax[0,0].colorbar()
+ax[1,1].set_ylabel('Day of forecast initialization')
+ax[1,1].set_xlabel('Time horizon/Lead time')
+
+fig.delaxes(ax[1, 2])
+
+plt.savefig('results/chaotic_stochastic/horizon_maps.pdf')
+
+
 #=====================================================#
 # Forecasting with the fitted at different lead times #
 #=====================================================#
@@ -642,7 +804,7 @@ mat_ricker = np.full((len(y_test), len(y_test)), np.nan)
 mat_climatology = np.full((len(y_test), len(y_test)), np.nan)
 
 i = 0
-fh_metric = 'correlation'
+fh_metric = 'crps'
 for states, temps, clim in forecastloader:
 
     print('I is: ', i)
@@ -650,7 +812,7 @@ for states, temps, clim in forecastloader:
     clim = clim.squeeze().detach().numpy()
     forecast = []
     for modelfit in modelfits:
-        forecast.append(modelfit.forward(N0, temps).detach().numpy())
+        forecast.append(modelfit.forecast(N0, temps).detach().numpy())
     forecast = np.array(forecast).squeeze()
     states = states.squeeze().detach().numpy()
 
