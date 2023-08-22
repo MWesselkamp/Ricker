@@ -441,6 +441,7 @@ def plot_losses(losses, loss_fun, log=True, saveto=''):
     plt.ylabel(f'{loss_fun} loss')
     plt.xlabel(f'Epoch')
     plt.savefig(os.path.join(saveto, 'losses.pdf'))
+    plt.close()
 
 def save_fit(dictionary, filename, losses, directory_path):
 
@@ -471,6 +472,7 @@ def plot_posterior(df, saveto=''):
     plt.tight_layout()
     plt.show()
     plt.savefig(os.path.join(saveto, 'posterior.pdf'))
+    plt.close()
 
 def set_parameters(process = 'stochastic', scenario = 'chaotic'):
 
@@ -558,8 +560,10 @@ def forecast_fitted(y_test, x_test, fitted_values, initial_params, initial_noise
     return yinit, ypreds, modelfits
 
 save = True
+process = 'stochastic'
+scenario = 'chaotic'
 
-observation_params, initial_params, true_noise, initial_noise = set_parameters(process = 'stochastic', scenario = 'chaotic')
+observation_params, initial_params, true_noise, initial_noise = set_parameters(process = process, scenario = scenario)
 y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = create_observations(years = 10, observation_params= observation_params, true_noise = true_noise)
 fitted_values, losses = fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples=10, epochs=20, loss_fun = 'mse', step_length = 10)
 posterior = pd.DataFrame(fitted_values)
@@ -570,9 +574,9 @@ keys = ['alpha', 'beta', 'bx', 'cx', 'sigma', 'phi']
 ip_samples = [dict(zip(keys, ip[:,column])) for column in range(ip.shape[1])]
 
 if save:
-    pd.DataFrame(fitted_values).to_csv('results/chaotic_stochastic/fitted_values.csv')
-    plot_posterior(posterior, saveto='results/chaotic_stochastic_mse')
-    plot_losses(losses, loss_fun='mse', saveto='results/chaotic_stochastic/fitted_values.csv')
+    pd.DataFrame(fitted_values).to_csv(f'results/{scenario}_{process}/fitted_values.csv')
+    plot_posterior(posterior, saveto=f'results/{scenario}_{process}')
+    plot_losses(losses, loss_fun='mse', saveto=f'results/{scenario}_{process}')
 
 yinit, ypreds, modelfits = forecast_fitted(y_test, x_test, ip_samples, initial_params, initial_noise, initial_uncertainty = 0.001)
 ypreds = ypreds[~np.any(np.isnan(ypreds), axis=1),:]
@@ -581,7 +585,7 @@ pointwise_mse = {'MSE': mse(y_test.detach().numpy()[np.newaxis,:], ypreds),
                   'MSE_clim': mse(y_test.detach().numpy()[np.newaxis,:], climatology.detach().numpy())}
 pointwise_crps = {'CRPS': [CRPS(ypreds[:,i], y_test.detach().numpy()[i]).compute()[0] for i in range(ypreds.shape[1])],
                   'CRPS_clim': [CRPS(climatology.detach().numpy()[:,i], y_test.detach().numpy()[i]).compute()[0] for i in range(ypreds.shape[1])]}
-plot_fit(yinit, ypreds[:40,:], y_test, scenario=f"{'chaotic'}_{'stochastic'}", loss_fun='mse', clim=climatology,fh_metric1=pointwise_mse,fh_metric2=pointwise_crps, save=True)
+plot_fit(yinit, ypreds[:40,:], y_test, scenario=f"{scenario}_{process}", loss_fun='mse', clim=climatology,fh_metric1=pointwise_mse,fh_metric2=pointwise_crps, save=True)
 
 sr = [shapiro(ypreds[:,i])[1] for i in range(ypreds.shape[1])]
 plt.plot(sr)
@@ -605,117 +609,130 @@ for i in range(5):
 #=============================#
 # Forecasting with the fitted #
 #=============================#
-def get_fh(fh_metric, ypreds, y_test, climatology, skillscore = True, fh_def = 'actual'):
 
-    forecast = ypreds
-    states = y_test.detach().numpy()
-    clim = climatology.detach().numpy()
-    perfect_observation = np.mean(forecast, axis=0)
+def pointwise_evaluation(forecast, observation, fh_metric):
 
     if fh_metric == 'crps':
-        performance = [CRPS(forecast[:,i], states[i]).compute()[0] for i in range(forecast.shape[1])]
-        performance_perfect = [CRPS(forecast[:,i], perfect_observation[i]).compute()[0] for i in range(forecast.shape[1])]
-        performance_ref = [CRPS(clim[:, i], states[i]).compute()[0] for i in range(clim.shape[1])]
-        performance_ref_perfect = [CRPS(clim[:, i], perfect_observation[i]).compute()[0] for i in range(clim.shape[1])]
+        try:
+            performance = [CRPS(forecast[:,i], observation[i]).compute()[0] for i in range(forecast.shape[1])]
+        except ValueError:
+            performance = [CRPS(forecast[:,i], observation.squeeze()[i]).compute()[0] for i in range(forecast.shape[1])]
 
-    elif fh_metric == 'nashsutcliffe':
-        performance = [nash_sutcliffe(states[np.newaxis,:], forecast[:,i]) for i in range(forecast.shape[1])]
-        performance_ref = [np.mean([nash_sutcliffe(states[:k+1], clim[j, :k+1]) for j in range(forecast.shape[0])])  for k in range(clim.shape[1]-1)]
-
-    elif fh_metric == 'abs':
-        performance = np.mean(absolute_differences(states[np.newaxis,:], forecast), axis=0)
-        performance_perfect = np.mean(absolute_differences(perfect_observation, forecast), axis=0)
-        performance_ref =  np.mean(absolute_differences(states[np.newaxis,:], clim), axis=0)
-        performance_ref_perfect =  np.mean(absolute_differences(perfect_observation, clim), axis=0)
+    elif fh_metric == 'mae':
+        #performance = np.mean(absolute_differences(states[np.newaxis,:], forecast), axis=0)
+        performance= np.mean(absolute_differences(observation, forecast), axis=0)
 
     elif fh_metric == 'mse':
-        performance = mse(states[np.newaxis,:], forecast)
-        performance_perfect = mse(perfect_observation, forecast)
-        performance_ref = mse(states[np.newaxis,:], clim)
-        performance_ref_perfect = mse(perfect_observation, clim)
+        #performance = mse(states[np.newaxis,:], forecast)
+        performance = mse(observation, forecast)
 
     elif fh_metric == 'rmse':
-        performance = rmse(states[np.newaxis,:], forecast)
-        performance_perfect = rmse(perfect_observation, forecast)
-        performance_ref = rmse(states[np.newaxis,:], clim)
-        performance_ref_perfect = rmse(perfect_observation, clim)
+        #performance = rmse(states[np.newaxis,:], forecast)
+        performance = rmse(observation, forecast)
 
     elif fh_metric == 'rsquared':
-        performance = [[r2_score(states[:j], forecast[i,:j]) for i in range(forecast.shape[0])] for j in range(1,forecast.shape[1])]
-        performance_ref = [[r2_score(states[:j], clim[i,:j]) for i in range(clim.shape[0])] for j in range(1,clim.shape[1])]
+        performance = [[r2_score(observation[:j], forecast[i,:j]) for i in range(forecast.shape[0])] for j in range(1,forecast.shape[1])]
 
     elif fh_metric == 'corr':
-        w = 3
-        performance = np.mean(rolling_corrs(states[np.newaxis,:], forecast, window=w), axis=0)
-        performance_perfect = np.mean(rolling_corrs(perfect_observation[np.newaxis,:], forecast, window=w), axis=0)
-        performance_ref = np.mean(rolling_corrs(states[np.newaxis,:], clim, window=w), axis=0)
-        performance_ref_perfect = np.mean(rolling_corrs(perfect_observation[np.newaxis,:], clim, window=w), axis=0)
+        w = 10
+        performance = np.mean(rolling_corrs(observation, forecast, window=w), axis=0)
 
-    performance = np.array(performance)
-    performance_perfect = np.array(performance_perfect)
-    performance_ref = np.array(performance_ref)
-    performance_ref_perfect = np.array(performance_ref_perfect)
-    if skillscore:
-        if fh_def == 'actual':
-            skill = 1 - (performance/performance_ref) # If mse of climatology is larger, term is larger zero.
-        else:
-            skill = 1 - (performance_perfect/performance_ref_perfect)
-        plt.plot(skill)
-        if fh_metric == "crps":
-            fh = np.argmax(skill < 0)
-        elif fh_metric == 'abs':
-            fh = np.argmax(skill < 0)
-        elif fh_metric == 'mse':
-            fh = np.argmax(skill < 0)
-        elif fh_metric == 'rmse':
-            fh = np.argmax(skill < 0)
-        elif fh_metric == 'nashsutcliffe':
-            fh = np.argmax(skill < 0)
-        elif fh_metric == 'corr':
-            if fh_def == 'actual':
-                fh = np.argmax(performance < 0.5)
-            else:
-                fh = np.argmax(performance_perfect < 0.5)
+    return np.array(performance)
 
-        return fh
+def forecast_skill_horizon(performance, performance_ref, fh_metric):
 
+    skill = 1 - (performance/performance_ref)
+
+    if fh_metric == "crps":
+        reached_fsh = skill < 0
+    elif fh_metric == 'mae':
+        reached_fsh = skill < 0
+    elif fh_metric == 'mse':
+        reached_fsh = skill < 0
+    elif fh_metric == 'rmse':
+        reached_fsh = skill < 0
+
+    if reached_fsh.any():
+        fsh = np.argmax(reached_fsh)
     else:
-        if fh_def == 'actual':
-            proficiency = performance
-        else:
-            proficiency = performance_perfect
+        fsh = len(reached_fsh)
 
-        if fh_metric == "crps":
-            fh = np.argmax(proficiency > 0.05)
-        elif fh_metric == 'abs':
-            fh = np.argmax(proficiency > 0.1)
-        elif fh_metric == 'mse':
-            fh = np.argmax(proficiency > 0.1)
-        elif fh_metric == 'rmse':
-            fh = np.argmax(proficiency > 0.1)
-        elif fh_metric == 'nashsutcliffe':
-            fh = np.argmax(proficiency > 0.1)
-        elif fh_metric == 'corr':
-            fh = np.argmax(proficiency < 0.5)
+    return fsh
+def forecast_horizon(performance, fh_metric):
 
-        return fh
+    if fh_metric == "crps":
+        reached_fh = performance > 0.05
+    elif fh_metric == 'mae':
+        reached_fh = performance > 0.05
+    elif fh_metric == 'mse':
+        reached_fh = performance > 0.025
+    elif fh_metric == 'rmse':
+        reached_fh = performance > 0.025
+    elif fh_metric == 'corr':
+        reached_fh = performance < 0.5
 
-metrics = ['corr', 'mse', 'abs', 'crps']
-fh_a = [get_fh(m, ypreds, y_test, climatology, skillscore=False,fh_def='actual') for m in metrics]
-fh_p = [get_fh(m, ypreds, y_test, climatology, skillscore=False,fh_def='perfect') for m in metrics]
-fhs_a = [get_fh(m, ypreds, y_test, climatology, skillscore=True, fh_def='actual') for m in metrics]
-fhs_p = [get_fh(m, ypreds, y_test,climatology, skillscore=True,fh_def='perfect') for m in metrics]
-pd.DataFrame([fh_a, fh_p, fhs_a, fhs_p], columns=metrics, index = ['fh_a', 'fh_p', 'fhs_a', 'fhs_p']).to_csv('results/chaotic_stochastic/horizons.csv')
+    if reached_fh.any():
+        fh = np.argmax(reached_fh)
+    else:
+        fh = len(reached_fh)
+
+    return fh
+def get_fh(forecast, obs, fh_metric):
+    performance = pointwise_evaluation(forecast, obs, fh_metric=fh_metric)
+    fh = forecast_horizon(performance, fh_metric=fh_metric)
+    return fh
+
+def get_fsh(forecast, reference, obs, fh_metric):
+    performance_forecast = pointwise_evaluation(forecast, obs, fh_metric=fh_metric)
+    performance_reference = pointwise_evaluation(reference, obs, fh_metric=fh_metric)
+    fsh = forecast_skill_horizon(performance_forecast, performance_reference, fh_metric=fh_metric)
+    return fsh
+
+forecast = ypreds
+obs = y_test.detach().numpy()[np.newaxis,:]
+reference = climatology.detach().numpy()
+obs_perfect = np.mean(forecast, axis=0)[np.newaxis,:]
+ref_perfect = np.mean(reference, axis=0)[np.newaxis,:]
+
+performance = pointwise_evaluation(forecast, obs_perfect, fh_metric='crps')
+plt.plot(performance)
+
+metrics_fh = ['corr', 'mse', 'mae', 'crps']
+fha_ricker = [get_fh(forecast, obs, fh_metric=m) for m in metrics_fh]
+fhp_ricker = [get_fh(forecast, obs_perfect, fh_metric=m) for m in metrics_fh]
+fha_reference = [get_fh(reference, obs, fh_metric=m) for m in metrics_fh]
+fhp_reference = [get_fh(reference, ref_perfect, fh_metric=m) for m in metrics_fh]
+
+metrics_fsh = ['mse', 'mae', 'crps']
+fsh = [None] + [get_fsh(forecast, reference,obs, fh_metric=m) for m in metrics_fsh]
+
+pd.DataFrame([fha_ricker, fhp_ricker, fha_reference, fhp_reference, fsh], columns=metrics_fh,
+             index = ['fha_ricker', 'fhp_ricker', 'fha_reference', 'fhp_reference', 'fsh']).to_csv(f'results/{scenario}_{process}/horizons.csv')
 
 
-plt.scatter(metrics, fh_p, marker='D', color='red', label='$\hat{h}$')
-plt.scatter(metrics, fh_a, marker='D', color='blue', label='$h$')
-plt.scatter(metrics, fhs_p, marker='D', facecolors='none', edgecolors='red', label='$\hat{h}_{s}$')
-plt.scatter(metrics, fhs_a, marker='D', facecolors='none', edgecolors='blue', label='$h_{s}$')
-plt.ylabel('Forecast horizon')
-plt.xlabel('Metric')
-plt.legend()
-plt.savefig('results/chaotic_stochastic/horizons.pdf')
+
+plt.rcParams['font.size'] = 18
+plt.figure(figsize=(9,6))
+x_positions = np.arange(len(metrics_fh))
+x_labels = ['Corr', 'MSE', 'MAE', 'CRPS']
+#shade_colors = ['lightgray', 'white', 'white', 'gray30']
+#for i in range(4):
+#    if i < 3:
+#        plt.fill_between(x_positions[i], x_positions[i+1], color=shade_colors[i], alpha=0.5)
+#    else:
+#        plt.fill_between(x_positions[i], x_positions[-1], color=shade_colors[i], alpha=0.5)
+plt.hlines(xmin=min(x_positions)-0.5, xmax=max(x_positions)+0.5, y = 0, linestyles='--', colors='black', linewidth = 0.5)
+plt.scatter(x_positions-0.2, fha_ricker, marker='D',s=120, color='blue', label='$h_{Ricker}$')
+plt.scatter(x_positions, fha_reference, marker='D',s=120, color='green', label='$h_{Climatology}$ ')
+plt.scatter(x_positions-0.2, fhp_ricker, marker='D',s=120, facecolors='none', edgecolors='blue', label='$\hat{h}_{Ricker}$')
+plt.scatter(x_positions, fhp_reference, marker='D',s=120, facecolors='none', edgecolors='green', label='$\hat{h}_{Climatology}$')
+plt.scatter(x_positions+0.2, fsh, marker='D',s=120, color='red', label='$h_{skill}$')
+plt.ylabel('Forecast horizon', fontweight='bold')
+plt.xlabel('Metric', fontweight='bold')
+plt.xticks(x_positions, x_labels)
+plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+plt.tight_layout()
+plt.savefig(f'results/{scenario}_{process}/horizons.pdf')
 
 #================================================#
 # Forecasting with the fitted at same lead times #
@@ -790,7 +807,7 @@ ax[1,1].set_xlabel('Time horizon/Lead time')
 
 fig.delaxes(ax[1, 2])
 
-plt.savefig('results/chaotic_stochastic/horizon_maps.pdf')
+plt.savefig(f'results/{scenario}_{process}/horizon_maps.pdf')
 
 
 #=====================================================#
