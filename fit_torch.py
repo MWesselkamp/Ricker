@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 #import argparse
 import os
 import os.path
@@ -18,6 +19,7 @@ from metrics import rolling_mse, mse, rolling_corrs, rmse, absolute_differences
 from sklearn.metrics import r2_score
 from scipy.stats import shapiro
 from neuralforecast.losses.pytorch import sCRPS, MQLoss, MAE, QuantileLoss
+from itertools import product
 
 #parse = False
 seed = False
@@ -280,6 +282,7 @@ class SimODEData(Dataset):
 
     def __getitem__(self, index: int): #  -> Tuple[torch.Tensor, torch.Tensor]
         return self.y[index:index+self.step_length], self.y_sigma[index:index+self.step_length], self.temp[index:index+self.step_length]
+
 class ForecastData(Dataset):
     """
         A very simple dataset class for generating forecast data sets of different lengths.
@@ -377,7 +380,8 @@ def crps_loss(outputs, targets):
 
     return loss
 
-def train(y_train,sigma_train, x_train, model, epochs, loss_fun = 'mse', step_length = 2):
+def train(y_train,sigma_train, x_train, model, epochs, loss_fun = 'mse', step_length = 2, fit_sigma = True):
+
 
     data = SimODEData(step_length=step_length, y=y_train, y_sigma=sigma_train, temp=x_train)
     trainloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
@@ -410,9 +414,9 @@ def train(y_train,sigma_train, x_train, model, epochs, loss_fun = 'mse', step_le
 
             output, output_sigma = model(initial_state, temp)
 
-            if (loss_fun == 'mse') & (sigma_train is not None):
+            if (loss_fun == 'mse') & (fit_sigma):
                 loss = criterion(output, target) + criterion(output_sigma[0], target_upper) + criterion(output_sigma[1], target_lower)
-            elif (loss_fun == 'mse') & (sigma_train is not None):
+            elif (loss_fun == 'mse') & (not fit_sigma):
                 loss = criterion(output, target)
             elif loss_fun == 'crps':
                 # loss = torch.zeros((1), requires_grad=True).clone()
@@ -522,7 +526,11 @@ def fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, sam
         # Sample from prior
         ip = [np.random.normal(i, 0.1, 1)[0] for i in initial_params]
         model = Ricker_Ensemble(params=ip, noise=initial_noise, initial_uncertainty=None)
-        losses = train(y_train, sigma_train, x_train, model, epochs=epochs, loss_fun = loss_fun, step_length = step_length)
+        if initial_noise is not None:
+            losses = train(y_train, sigma_train, x_train, model, epochs=epochs, loss_fun = loss_fun, step_length = step_length, fit_sigma=True)
+        else:
+            losses = train(y_train, sigma_train, x_train, model, epochs=epochs, loss_fun=loss_fun,
+                           step_length=step_length, fit_sigma=False)
         print(model.get_fit())
         fm = model.get_fit()
         fitted_values.append(fm)
@@ -557,54 +565,148 @@ def forecast_fitted(y_test, x_test, fitted_values, initial_params, initial_noise
     else:
         yinit = np.array(yinit).squeeze()
         ypreds = np.array(ypreds).squeeze()
+    ypreds = ypreds[~np.any(np.isnan(ypreds), axis=1), :]
     return yinit, ypreds, modelfits
+
+def get_parameter_samples(fitted_values, uncertainty = 0.05):
+
+    fitted_pars = fitted_values.mean().values
+    # allow variation of 5 %
+    ip = np.array([np.random.normal(i, i*uncertainty, 50) for i in fitted_pars])
+    keys = ['alpha', 'beta', 'bx', 'cx', 'sigma', 'phi']
+    ip_samples = [dict(zip(keys, ip[:,column])) for column in range(ip.shape[1])]
+    ip_samples = [{key: None if isinstance(value, float) and np.isnan(value) else value for key, value in sample.items()} for sample in ip_samples]
+
+    return ip_samples
+
+#========================#
+# Set simulation setting #
+#========================#
 
 save = True
 process = 'stochastic'
 scenario = 'chaotic'
 
+plt.rcParams['font.size'] = 18
+
+#============#
+# Fit Model  #
+#============#
+
 observation_params, initial_params, true_noise, initial_noise = set_parameters(process = process, scenario = scenario)
 y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = create_observations(years = 10, observation_params= observation_params, true_noise = true_noise)
-fitted_values, losses = fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples=10, epochs=20, loss_fun = 'mse', step_length = 10)
-posterior = pd.DataFrame(fitted_values)
+if process == 'stochastic':
+    fitted_values, losses = fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples=1, epochs=20, loss_fun = 'mse', step_length = 10)
+else:
+    fitted_values, losses = fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples=1, epochs=20, loss_fun = 'mse', step_length = 20)
 
-fitted_pars = posterior.mean().values
-ip = np.array([np.random.normal(i, 0.01, 20) for i in fitted_pars])
-keys = ['alpha', 'beta', 'bx', 'cx', 'sigma', 'phi']
-ip_samples = [dict(zip(keys, ip[:,column])) for column in range(ip.shape[1])]
+fitted_values = pd.DataFrame(fitted_values)
 
 if save:
-    pd.DataFrame(fitted_values).to_csv(f'results/{scenario}_{process}/fitted_values.csv')
-    plot_posterior(posterior, saveto=f'results/{scenario}_{process}')
+    fitted_values.to_csv(f'results/{scenario}_{process}/fitted_values.csv')
+    plot_posterior(fitted_values, saveto=f'results/{scenario}_{process}')
     plot_losses(losses, loss_fun='mse', saveto=f'results/{scenario}_{process}')
 
-yinit, ypreds, modelfits = forecast_fitted(y_test, x_test, ip_samples, initial_params, initial_noise, initial_uncertainty = 0.001)
-ypreds = ypreds[~np.any(np.isnan(ypreds), axis=1),:]
+#=======================#
+# Forecast all dynamics #
+#=======================#
+def get_forecast_scenario():
+
+    rows = ['deterministic', 'stochastic']
+    cols = ['chaotic', 'nonchaotic']
+    scenarios = list(product(rows, cols))
+    obs, preds, ref = [], [], []
+    for i in range(len(scenarios)):
+        observation_params, initial_params, true_noise, initial_noise = set_parameters(process=scenarios[i][0], scenario=scenarios[i][1])
+        y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = create_observations(years=10,
+                                                                                                     observation_params=observation_params,
+                                                                                                     true_noise=true_noise)
+        fitted_values = pd.read_csv(f'results/{scenarios[i][1]}_{scenarios[i][0]}/fitted_values.csv')
+        fitted_values = fitted_values.drop(fitted_values.columns[0], axis=1)
+        parameter_samples = get_parameter_samples(fitted_values, uncertainty=0.01)
+        yinit, ypreds, modelfits = forecast_fitted(y_test, x_test, parameter_samples, initial_params, initial_noise,
+                                                   initial_uncertainty=0.01)
+        obs.append(y_test.detach().numpy())
+        preds.append(ypreds)
+        ref.append(climatology.detach().numpy())
+
+    return obs, preds, ref
+
+obs, preds, ref = get_forecast_scenario()
+
+fig, ax = plt.subplots(2, 2, figsize=(10, 8), sharey=True, sharex=True)
+
+ax[0,0].plot(ref[1].transpose(), color='gray', alpha = 0.9, zorder=0)
+ax[0,0].plot(obs[1].transpose(), color='red', alpha = 0.8, zorder=1)
+ax[0,0].fill_between(np.arange(preds[1].shape[1]), preds[1].transpose().min(axis=1), preds[1].transpose().max(axis=1), color='b', alpha=0.4)
+ax[0,0].plot(preds[1].transpose().mean(axis=1), color='b', alpha=0.5)
+ax[0,0].set_ylabel('Relative size')
+
+l1 = ax[0,1].plot(ref[0].transpose(), color='gray', label = 'Expected', alpha = 0.9, zorder=0)
+l2 = ax[0,1].plot(obs[0].transpose(), color='red', label='Observed', alpha = 0.8, zorder=1)
+l3 = ax[0,1].fill_between(np.arange(preds[0].shape[1]), preds[0].transpose().min(axis=1), preds[0].transpose().max(axis=1), color='b', alpha=0.4)
+l4 = ax[0,1].plot(preds[0].transpose().mean(axis=1), color='b', alpha=0.5, label='Fitted')
+
+ax[1,0].plot(ref[3].transpose(), color='gray', zorder=0)
+ax[1,0].plot(obs[3].transpose(), color='red', alpha = 0.6, zorder=1)
+ax[1,0].fill_between(np.arange(preds[3].shape[1]), preds[3].transpose().min(axis=1), preds[3].transpose().max(axis=1), color='b', alpha=0.4)
+ax[1,0].plot(preds[3].transpose().mean(axis=1), color='b', alpha=0.5)
+ax[1,0].set_ylabel('Relative size')
+ax[1,0].set_xlabel('Timestep [Days]')
+
+ax[1,1].plot(ref[2].transpose(), color='gray', zorder=0)
+ax[1,1].plot(obs[2].transpose(), color='red', alpha = 0.6, zorder=1)
+ax[1,1].fill_between(np.arange(preds[2].shape[1]), preds[2].transpose().min(axis=1), preds[2].transpose().max(axis=1), color='b', alpha=0.4)
+ax[1,1].plot(preds[2].transpose().mean(axis=1), color='b', alpha=0.5)
+ax[1,1].set_xlabel('Timestep [Days]')
+
+plt.setp(l1[1:], label="_")
+plt.setp(l2[1:], label="_")
+plt.setp(l4[1:], label="_")
+ax[0,1].legend(loc='upper left', bbox_to_anchor=(1, 1))
+plt.tight_layout()
+fig.show()
+plt.savefig(f'results/dynamics_all.pdf')
+
+#================================#
+# Forecast with the one scenario #
+#================================#
+
+if 'fitted_values' in globals():
+    print(f"Deleting globally set parameter values.")
+    del(fitted_values)
+else:
+    print(f"Loading parameters from previous fit.")
+    fitted_values = pd.read_csv(f'results/{scenario}_{process}/fitted_values.csv', index_col=False)
+    fitted_values = fitted_values.drop(fitted_values.columns[0], axis=1)
+
+parameter_samples = get_parameter_samples(fitted_values)
+yinit, ypreds, modelfits = forecast_fitted(y_test, x_test, parameter_samples, initial_params, initial_noise, initial_uncertainty = 0.01)
 
 pointwise_mse = {'MSE': mse(y_test.detach().numpy()[np.newaxis,:], ypreds),
                   'MSE_clim': mse(y_test.detach().numpy()[np.newaxis,:], climatology.detach().numpy())}
 pointwise_crps = {'CRPS': [CRPS(ypreds[:,i], y_test.detach().numpy()[i]).compute()[0] for i in range(ypreds.shape[1])],
                   'CRPS_clim': [CRPS(climatology.detach().numpy()[:,i], y_test.detach().numpy()[i]).compute()[0] for i in range(ypreds.shape[1])]}
-plot_fit(yinit, ypreds[:40,:], y_test, scenario=f"{scenario}_{process}", loss_fun='mse', clim=climatology,fh_metric1=pointwise_mse,fh_metric2=pointwise_crps, save=True)
+plot_fit(ypreds[:40,:], y_test, scenario=f"{scenario}", process=f"{process}", clim=climatology,fh_metric1=pointwise_mse,fh_metric2=pointwise_crps, save=True)
 
 sr = [shapiro(ypreds[:,i])[1] for i in range(ypreds.shape[1])]
 plt.plot(sr)
-
 
 fig, axes = plt.subplots(nrows=7, ncols=1, figsize=(6, 8), sharex=True)
 for i in range(7):
     x = ypreds[:,i]
     mu = x.mean()
     sigma = x.std()
-    axes[i].hist(x, alpha=0.5)
-    xs = np.linspace(0.93, 1.05, num=100)
+    axes[i].hist(x=climatology[:, i].detach().numpy(),bins=20, alpha=0.5, colors='salmon')
+    axes[i].hist(x, bins=20, alpha=0.5)
+    xs = np.linspace(x.min(), x.max(), num=100)
     axes[i].plot(xs, stats.norm.pdf(xs, mu, sigma))
-    axes[i].vlines(x = y_test[i].detach().numpy(), ymin = 0, ymax = 50)
-    axes[i].vlines(x = climatology[:,i].detach().numpy(), ymin = 0, ymax = 50, colors='lightblue')
+    #axes[i].vlines(x = y_test[i].detach().numpy(), ymin = 0, ymax = 50)
 
 for i in range(5):
     print('Ensemble', ps.crps_ensemble(y_test[i].detach().numpy(), ypreds[:,i]))
     print('Climatology', ps.crps_ensemble(y_test[i].detach().numpy(), climatology.detach().numpy()[:,i]))
+
 
 #=============================#
 # Forecasting with the fitted #
@@ -710,17 +812,12 @@ pd.DataFrame([fha_ricker, fhp_ricker, fha_reference, fhp_reference, fsh], column
              index = ['fha_ricker', 'fhp_ricker', 'fha_reference', 'fhp_reference', 'fsh']).to_csv(f'results/{scenario}_{process}/horizons.csv')
 
 
-
-plt.rcParams['font.size'] = 18
 plt.figure(figsize=(9,6))
 x_positions = np.arange(len(metrics_fh))
 x_labels = ['Corr', 'MSE', 'MAE', 'CRPS']
-#shade_colors = ['lightgray', 'white', 'white', 'gray30']
-#for i in range(4):
-#    if i < 3:
-#        plt.fill_between(x_positions[i], x_positions[i+1], color=shade_colors[i], alpha=0.5)
-#    else:
-#        plt.fill_between(x_positions[i], x_positions[-1], color=shade_colors[i], alpha=0.5)
+x_colors = ['gray', 'silver', 'silver', 'lightgray']
+for i in range(len(x_positions)):
+    plt.axvspan(x_positions[i]-0.5, x_positions[i]+1-0.5, facecolor=x_colors[i], alpha=0.5)
 plt.hlines(xmin=min(x_positions)-0.5, xmax=max(x_positions)+0.5, y = 0, linestyles='--', colors='black', linewidth = 0.5)
 plt.scatter(x_positions-0.2, fha_ricker, marker='D',s=120, color='blue', label='$h_{Ricker}$')
 plt.scatter(x_positions, fha_reference, marker='D',s=120, color='green', label='$h_{Climatology}$ ')
@@ -776,36 +873,41 @@ for states, temps, clim in forecastloader:
 
     i+=1
 
-fig, ax = plt.subplots(2, 3, figsize=(14, 7), sharey=False, sharex=False)
+fig, ax = plt.subplots(2, 3, figsize=(14, 9), sharey=False, sharex=False)
+custom_min = 0
+custom_max = 0.6
 
-heatmap0 = ax[0,0].imshow(mat_ricker.transpose()[0:,:])
+heatmap0 = ax[0,0].imshow(mat_ricker.transpose()[0:,:], vmin=custom_min, vmax=custom_max, cmap='plasma_r')
 cb = plt.colorbar(heatmap0, ax=ax[0,0])
 cb.set_label('CRPS')
 ax[0,0].set_ylabel('Day of forecast initialization')
-ax[0,0].set_xlabel('Time horizon/Lead time')
+ax[0,0].set_xlabel('Forecast time')
+ax[0,0].autoscale(False)
 
-ax[0,1].imshow((mat_ricker.transpose()[0:,:] > 0.05))
+ax[0,1].imshow((mat_ricker.transpose()[0:,:] > 0.05), cmap='plasma_r')
 #plt.colorbar()
 ax[0,1].set_ylabel('Day of forecast initialization')
-ax[0,1].set_xlabel('Time horizon/Lead time')
+ax[0,1].set_xlabel('Forecast time')
 
-ax[0,2].imshow((mat_ricker.transpose()[0:,:] > mat_climatology.transpose()[0:,:]))
+ax[0,2].imshow((mat_ricker.transpose()[0:,:] > mat_climatology.transpose()[0:,:]), cmap='plasma_r')
 #ax[0,2].colorbar()
 ax[0,2].set_ylabel('Day of forecast initialization')
-ax[0,2].set_xlabel('Time horizon/Lead time')
+ax[0,2].set_xlabel('Forecast time')
 
-heatmap1 = ax[1,0].imshow(mat_ricker_perfect.transpose()[0:,:])
+heatmap1 = ax[1,0].imshow(mat_ricker_perfect.transpose()[0:,:], vmin=custom_min, vmax=custom_max, cmap='plasma_r')
 cb1 = plt.colorbar(heatmap1, ax=ax[1,0])
 cb1.set_label('CRPS')
 ax[1,0].set_ylabel('Day of forecast initialization')
-ax[1,0].set_xlabel('Time horizon/Lead time')
+ax[1,0].set_xlabel('Forecast time')
+ax[1,0].autoscale(False)
 
-ax[1,1].imshow((mat_ricker_perfect.transpose()[0:,:] > 0.05))
+ax[1,1].imshow((mat_ricker_perfect.transpose()[0:,:] > 0.05), cmap='plasma_r')
 #ax[0,0].colorbar()
 ax[1,1].set_ylabel('Day of forecast initialization')
-ax[1,1].set_xlabel('Time horizon/Lead time')
+ax[1,1].set_xlabel('Forecast time')
 
 fig.delaxes(ax[1, 2])
+plt.tight_layout()
 
 plt.savefig(f'results/{scenario}_{process}/horizon_maps.pdf')
 

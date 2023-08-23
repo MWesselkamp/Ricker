@@ -1,24 +1,25 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_fit(yinit, ypreds, y, scenario, loss_fun, clim = None, fh_metric1 = None,fh_metric2 = None, save=True):
+def plot_fit(ypreds, y, scenario, process, clim = None, fh_metric1 = None,fh_metric2 = None, save=True):
 
-    fig, (ax1, ax2, ax3) = plt.subplots(3,1, sharex=True, gridspec_kw={'height_ratios': [3,0.8,0.8]})
+    fig, (ax1, ax2, ax3) = plt.subplots(3,1, figsize=(8, 8), sharex=True, gridspec_kw={'height_ratios': [3,0.8,0.8]})
     if not clim is None:
-        clim = ax1.plot(np.transpose(clim.detach().numpy()), color='lightgray', label = 'Expected')
-    true = ax1.plot(np.transpose(y.detach().numpy()), color='red', label='Observed')
-    init = ax1.plot(np.transpose(yinit), color='blue', label='Default', alpha=0.7)
-    fit = ax1.plot(np.transpose(ypreds), color='lightblue', label='Fitted', alpha=0.5)
+        clim = ax1.plot(np.transpose(clim.detach().numpy()), color='gray', label = 'Expected', zorder=0)
+    true = ax1.plot(np.transpose(y.detach().numpy()), color='red', label='Observed', zorder=1)
+    #fit = ax1.plot(np.transpose(ypreds), color='blue', label='Fitted', alpha=0.5)
+    fit = ax1.fill_between(np.arange(ypreds.shape[1]), ypreds.transpose().min(axis=1),
+                          ypreds.transpose().max(axis=1), color='b', alpha=0.4)
+    fit_mean = ax1.plot(ypreds.transpose().mean(axis=1), color='b', alpha=0.5, label='Fitted')
     if not clim is None:
         plt.setp(clim[1:], label="_")
-    plt.setp(init[1:], label="_")
-    plt.setp(fit[1:], label="_")
+    #plt.setp(fit_mean[1:], label="_")
     plt.setp(true[1:], label="_")
     ax1.legend()
     ax1.set_ylabel('Relative size')
     if not fh_metric1 is None:
         ax2.plot(list(fh_metric1.values())[1], color='gray', linewidth=0.8)
-        ax2.plot(list(fh_metric1.values())[0], color='lightblue', linewidth=0.8)
+        ax2.plot(list(fh_metric1.values())[0], color='blue', linewidth=0.8)
         ax2.set_ylabel(list(fh_metric1.keys())[0])
     else:
         ax2.plot(np.transpose(ypreds) - np.transpose(y.detach().numpy()[np.newaxis, :]), color='gray', linewidth=0.8)
@@ -27,7 +28,7 @@ def plot_fit(yinit, ypreds, y, scenario, loss_fun, clim = None, fh_metric1 = Non
     #ax2.set_xlabel('Timestep [Days]')
     if not fh_metric2 is None:
         ax3.plot(list(fh_metric2.values())[1], color='gray', linewidth=0.8)
-        ax3.plot(list(fh_metric2.values())[0], color='lightblue', linewidth=0.8)
+        ax3.plot(list(fh_metric2.values())[0], color='blue', linewidth=0.8)
         ax3.set_ylabel(list(fh_metric2.keys())[0])
     else:
         ax3.plot(np.transpose(ypreds) - np.transpose(y.detach().numpy()[np.newaxis, :]), color='gray', linewidth=0.8)
@@ -36,7 +37,7 @@ def plot_fit(yinit, ypreds, y, scenario, loss_fun, clim = None, fh_metric1 = Non
     ax3.set_xlabel('Timestep [Days]')
     plt.tight_layout()
     if save:
-        plt.savefig(f'results/{scenario}/verification_setting.pdf')
+        plt.savefig(f'results/{scenario}_{process}/verification_setting.pdf')
 
 def baseplot(x1, x2=None, x3 = None, transpose=False, xlab=None, ylab=None):
     if transpose:
