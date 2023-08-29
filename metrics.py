@@ -250,3 +250,28 @@ def entropy(x, y):
     q = norm.pdf(y, mu, std)
 
     return entropy(p, q)
+
+
+def nash_sutcliffe(observed, modeled):
+    """
+    Calculate Nash-Sutcliffe Efficiency (NSE).
+    """
+    observed = np.array(observed)
+    modeled = np.array(modeled)
+    mean_observed = np.mean(observed)
+
+    # Calculate sum of squared differences between observed and modeled values
+    ss_diff = np.sum((observed - modeled) ** 2)
+    # Calculate sum of squared differences between observed and mean of observed values
+    ss_total = np.sum((observed - mean_observed) ** 2)
+
+    # Nash-Sutcliffe Efficiency
+    nse = 1 - (ss_diff / ss_total)
+
+    return nse
+
+def rolling_nash_sutcliffe(reference, ensemble, window=2):
+    nse = [[nash_sutcliffe(reference[j:j + window], ensemble[i, j:j + window]) for i in range(ensemble.shape[0])] for
+             j in range(ensemble.shape[1] - window)]
+    nse = np.transpose(np.array(nse))
+    return nse

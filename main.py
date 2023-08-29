@@ -1,9 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from simulations import generate_data
-from references import diurnal_climatology
-from metrics import rolling_corrs, rolling_crps
+from unused_scripts.simulations import generate_data
+from unused_scripts.references import diurnal_climatology
+from metrics import rolling_crps
 from utils import sample_ensemble_member
 
 np.random.seed(42)

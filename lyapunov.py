@@ -1,7 +1,7 @@
 import sympy as sp
 import numpy as np
 
-from simulations import simulate_temperature, generate_data
+from unused_scripts.simulations import simulate_temperature, generate_data
 
 #==========#
 # Example  #

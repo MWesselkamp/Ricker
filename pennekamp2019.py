@@ -6,8 +6,8 @@ from sklearn.neighbors import KernelDensity
 from collections import Counter
 from math import factorial
 from visualisations import baseplot
-from simulations import generate_data
-from references import diurnal_climatology
+from unused_scripts.simulations import generate_data
+from unused_scripts.references import diurnal_climatology
 
 x_clim = diurnal_climatology(scenario = 'imperfect', growth_rate=0.1, sigma=0.001, initial_uncertainty=0.00, add_trend=True,
                         add_noise=False)  # create climatology

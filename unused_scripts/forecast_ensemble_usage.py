@@ -1,11 +1,8 @@
 import dynamics
-import simulations
 import utils
-import visualisations
-import forecast_ensemble
+from unused_scripts import forecast_ensemble
 import numpy as np
 import matplotlib.pyplot as plt
-import random
 
 np.random.seed(42)
 
@@ -79,8 +76,8 @@ xobs = obs.simulate()[:,:,0]
 dell_0 = abs(xsim[:,0]-xobs[:,0])
 
 imperfect_ensemble = forecast_ensemble.ImperfectEnsemble(ensemble_predictions=xsim,
-                                                           observations=xobs,
-                                                            reference="rolling_climatology")
+                                                         observations=xobs,
+                                                         reference="rolling_climatology")
 imperfect_ensemble.verification_settings(metric = "rolling_rmse",
                                        evaluation_style="single")
 imperfect_ensemble.accuracy()
@@ -100,8 +97,8 @@ xpred = sims.forecast_simulation['ts']
 vizualisations.baseplot(xpred, transpose=True)
 
 prediction_ensemble = forecast_ensemble.ForecastEnsemble(ensemble_predictions=xpred,
-                                                           observations=xobs,
-                                                            reference="climatology")
+                                                         observations=xobs,
+                                                         reference="climatology")
 prediction_ensemble.verification_settings(metric = "rolling_rmse",
                                        evaluation_style="single")
 

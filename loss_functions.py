@@ -2,6 +2,51 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+def crps_loss(outputs, targets):
+
+    fc = torch.sort(outputs).values
+    ob = targets.clone()
+    m = len(fc)
+
+    cdf_fc = torch.zeros_like(fc)
+    cdf_ob = torch.zeros_like(fc)
+    delta_fc = torch.zeros_like(fc)
+    # do for all ensemble members
+    for f in range(len(fc) - 1):
+        # check is ensemble member and its following ensemble member is smaller than observation.
+        if (fc[f] < ob) and (fc[f + 1] < ob):
+            cdf_fc[f] = ((f + 1) * 1 / m)
+            cdf_ob[f] = 0
+            delta_fc[f] = (fc[f + 1] - fc[f])
+        elif (fc[f] < ob) and (fc[f + 1] > ob):
+            # check is ensemble member is smaller than observation and its following ensemble member is larger than observation.
+            cdf_fc[f] = ((f + 1) * 1 / m)
+            cdf_fc[f] = ((f + 1) * 1 / m)
+            cdf_ob[f] = 0
+            cdf_ob[f] = 1
+            delta_fc[f] = ob - fc[f]
+            delta_fc[f] = fc[f + 1] - ob
+        else:
+            cdf_fc[f] = ((f + 1) * 1 / m)
+            cdf_ob[f] = 1
+            delta_fc[f] =  fc[f + 1] - fc[f]
+
+    loss = torch.sum(((cdf_fc - cdf_ob) ** 2) * delta_fc)
+
+    return loss
+
+
+class LogNormalLoss(nn.Module):
+    def __init__(self, sigma_true):
+        super(LogNormalLoss, self).__init__()
+        self.sigma_true = sigma_true
+
+    def forward(self, predictions, mu_true):
+        # Calculate the log-likelihood for a log-normal distribution
+        loss = 0.5 * ((torch.log(predictions) - mu_true) ** 2) / self.sigma_true**2
+        loss = torch.mean(loss)
+
+        return loss
 
 class CRPSLoss(nn.Module):
     '''

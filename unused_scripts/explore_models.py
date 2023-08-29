@@ -1,8 +1,6 @@
 # create simulator object
-import sklearn.metrics
-import numpy as np
 
-from simulations import Simulator
+from unused_scripts.simulations import Simulator
 import matplotlib.pyplot as plt
 from utils import legend_without_duplicate_labels
 import os
@@ -104,7 +102,6 @@ climatology_today = climatology[:,(climatology.shape[1]-xpreds.shape[1]):]
 
 pathname = f"../results/fh_evaluation"
 
-import numpy as np
 import matplotlib.pylab as pylab
 pylab.rc('font', family='sans-serif', size=14)
 

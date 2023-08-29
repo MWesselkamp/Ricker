@@ -13,9 +13,7 @@ import matplotlib.pyplot as plt
 import preprocessing
 import torch
 import numpy as np
-import simulations
 
-from torch.utils.data import Dataset
 #%% Data
 dfs = preprocessing.get_gpp()
 # Prep data for linear AE

@@ -1,16 +1,27 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from CRPS import CRPS
+from metrics import mse
+import torch
+import os
 
-def plot_fit(ypreds, y, scenario, process, clim = None, fh_metric1 = None,fh_metric2 = None, save=True):
+def plot_fit(ypreds, y, scenario, process, clim = None, save=True):
+
+    fh_metric1 = {'MSE': mse(y.detach().numpy()[np.newaxis, :], ypreds),
+                     'MSE_clim': mse(y.detach().numpy()[np.newaxis, :], clim.detach().numpy())}
+    fh_metric2 = {
+        'CRPS': [CRPS(ypreds[:, i], y.detach().numpy()[i]).compute()[0] for i in range(ypreds.shape[1])],
+        'CRPS_clim': [CRPS(clim.detach().numpy()[:, i], y.detach().numpy()[i]).compute()[0] for i in
+                      range(ypreds.shape[1])]}
 
     fig, (ax1, ax2, ax3) = plt.subplots(3,1, figsize=(8, 8), sharex=True, gridspec_kw={'height_ratios': [3,0.8,0.8]})
     if not clim is None:
-        clim = ax1.plot(np.transpose(clim.detach().numpy()), color='gray', label = 'Expected', zorder=0)
+        clim = ax1.plot(np.transpose(clim.detach().numpy()), color='gray', label = 'Climatology', zorder=0)
     true = ax1.plot(np.transpose(y.detach().numpy()), color='red', label='Observed', zorder=1)
     #fit = ax1.plot(np.transpose(ypreds), color='blue', label='Fitted', alpha=0.5)
     fit = ax1.fill_between(np.arange(ypreds.shape[1]), ypreds.transpose().min(axis=1),
                           ypreds.transpose().max(axis=1), color='b', alpha=0.4)
-    fit_mean = ax1.plot(ypreds.transpose().mean(axis=1), color='b', alpha=0.5, label='Fitted')
+    fit_mean = ax1.plot(ypreds.transpose().mean(axis=1), color='b', alpha=0.5, label='Ricker')
     if not clim is None:
         plt.setp(clim[1:], label="_")
     #plt.setp(fit_mean[1:], label="_")
@@ -34,10 +45,133 @@ def plot_fit(ypreds, y, scenario, process, clim = None, fh_metric1 = None,fh_met
         ax3.plot(np.transpose(ypreds) - np.transpose(y.detach().numpy()[np.newaxis, :]), color='gray', linewidth=0.8)
         ax3.set_ylabel('Absolute error')
     ax3.axhline(y=0, color = 'black', linestyle='--', linewidth = 0.8)
-    ax3.set_xlabel('Timestep [Days]')
+    ax3.set_xlabel('Time index')
     plt.tight_layout()
     if save:
         plt.savefig(f'results/{scenario}_{process}/verification_setting.pdf')
+
+def plot_fit2(ypreds, y, scenario, process, clim = None, fhs = None, save=True):
+
+
+    fig, (ax1, ax2) = plt.subplots(2,1, figsize=(8, 8), sharex=True, gridspec_kw={'height_ratios': [3,1]})
+    if not clim is None:
+        clim = ax1.plot(np.transpose(clim.detach().numpy()), color='gray', label = 'Climatology', zorder=0)
+    true = ax1.plot(np.transpose(y.detach().numpy()), color='red', label='Observed', zorder=1)
+    #fit = ax1.plot(np.transpose(ypreds), color='blue', label='Fitted', alpha=0.5)
+    fit = ax1.fill_between(np.arange(ypreds.shape[1]), ypreds.transpose().min(axis=1),
+                          ypreds.transpose().max(axis=1), color='b', alpha=0.4)
+    fit_mean = ax1.plot(ypreds.transpose().mean(axis=1), color='b', alpha=0.5, label='Ricker')
+    if not clim is None:
+        plt.setp(clim[1:], label="_")
+
+    #plt.setp(fit_mean[1:], label="_")
+    plt.setp(true[1:], label="_")
+    ax1.legend()
+    ax1.set_ylabel('Relative size')
+    ax2.plot(np.transpose(ypreds) - np.transpose(y.detach().numpy()[np.newaxis, :]), color='gray', linewidth=0.8)
+    if not fhs is None:
+        fh_ls = ['--', '-']
+        i = 0
+        for fh in fhs:
+            ax2.vlines(fh, ymin=-1, ymax=1, linestyles=fh_ls[i], color = 'black')
+            i += 1
+    ax2.set_ylabel('Residuals')
+    ax2.axhline(y=0, color = 'black', linestyle='--', linewidth = 0.8)
+    ax2.set_xlabel('Time index')
+    plt.tight_layout()
+    if save:
+        plt.savefig(f'results/{scenario}_{process}/verification_setting_anomaly.pdf')
+
+
+def plot_all_dynamics(obs, preds, ref, save):
+    fig, ax = plt.subplots(2, 2, figsize=(11, 8), sharey=True, sharex=True)
+
+    ax[0, 0].plot(ref[1].transpose(), color='gray', alpha=0.9, zorder=0)
+    ax[0, 0].plot(obs[1].transpose(), color='red', alpha=0.8, zorder=1)
+    ax[0, 0].fill_between(np.arange(preds[1].shape[1]), preds[1].transpose().min(axis=1),
+                          preds[1].transpose().max(axis=1), color='b', alpha=0.4)
+    ax[0, 0].plot(preds[1].transpose().mean(axis=1), color='b', alpha=0.5)
+    ax[0, 0].set_ylabel('Relative size')
+
+    l1 = ax[0, 1].plot(ref[0].transpose(), color='gray', label='Climatology', alpha=0.9, zorder=0)
+    l2 = ax[0, 1].plot(obs[0].transpose(), color='red', label='Observed', alpha=0.8, zorder=1)
+    l3 = ax[0, 1].fill_between(np.arange(preds[0].shape[1]), preds[0].transpose().min(axis=1),
+                               preds[0].transpose().max(axis=1), color='b', alpha=0.4)
+    l4 = ax[0, 1].plot(preds[0].transpose().mean(axis=1), color='b', alpha=0.5, label='Ricker')
+
+    ax[1, 0].plot(ref[3].transpose(), color='gray', zorder=0)
+    ax[1, 0].plot(obs[3].transpose(), color='red', alpha=0.6, zorder=1)
+    ax[1, 0].fill_between(np.arange(preds[3].shape[1]), preds[3].transpose().min(axis=1),
+                          preds[3].transpose().max(axis=1), color='b', alpha=0.4)
+    ax[1, 0].plot(preds[3].transpose().mean(axis=1), color='b', alpha=0.5)
+    ax[1, 0].set_ylabel('Relative size')
+    ax[1, 0].set_xlabel('Time index')
+
+    ax[1, 1].plot(ref[2].transpose(), color='gray', zorder=0)
+    ax[1, 1].plot(obs[2].transpose(), color='red', alpha=0.6, zorder=1)
+    ax[1, 1].fill_between(np.arange(preds[2].shape[1]), preds[2].transpose().min(axis=1),
+                          preds[2].transpose().max(axis=1), color='b', alpha=0.4)
+    ax[1, 1].plot(preds[2].transpose().mean(axis=1), color='b', alpha=0.5)
+    ax[1, 1].set_xlabel('Time index')
+
+    plt.setp(l1[1:], label="_")
+    plt.setp(l2[1:], label="_")
+    plt.setp(l4[1:], label="_")
+    ax[0, 1].legend(loc='upper left', bbox_to_anchor=(1, 1))
+    plt.tight_layout()
+    fig.show()
+
+    if save:
+        plt.savefig(f'results/dynamics_all.pdf')
+
+def plot_horizons(fha_ricker,fha_reference, fhp_ricker, fhp_reference, fsh, metrics_fh, scenario, process, save):
+    plt.figure(figsize=(9,6))
+    x_positions = np.arange(len(metrics_fh))
+    x_labels = ['Corr', 'MAE', 'F-Stats', 'CRPS(S)'] # ['Corr', 'MSE', 'MAE', 'CRPS']
+    x_colors = ['gray', 'gray', 'silver', 'lightgray']
+    for i in range(len(x_positions)):
+        plt.axvspan(x_positions[i]-0.5, x_positions[i]+1-0.5, facecolor=x_colors[i], alpha=0.5)
+    plt.hlines(xmin=min(x_positions)-0.5, xmax=max(x_positions)+0.5, y = 0, linestyles='--', colors='black', linewidth = 0.5)
+    plt.scatter(x_positions-0.2, fha_ricker, marker='D',s=120, color='blue', label='$h_{Ricker}$')
+    plt.scatter(x_positions, fha_reference, marker='D',s=120, color='green', label='$h_{Climatology}$ ')
+    plt.scatter(x_positions-0.2, fhp_ricker, marker='D',s=120, facecolors='none', edgecolors='blue', label='$\hat{h}_{Ricker}$')
+    plt.scatter(x_positions, fhp_reference, marker='D',s=120, facecolors='none', edgecolors='green', label='$\hat{h}_{Climatology}$')
+    plt.scatter(x_positions+0.2, fsh, marker='D',s=120, color='red', label='$h_{skill}$')
+    plt.ylabel('Forecast horizon', fontweight='bold')
+    plt.xlabel('Proficiency', fontweight='bold')
+    plt.xticks(x_positions, x_labels)
+    plt.ylim((-3,110))
+    plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+    plt.tight_layout()
+    if save:
+        plt.savefig(f'results/{scenario}_{process}/horizons.pdf')
+
+def plot_losses(losses, loss_fun, log=True, saveto=''):
+    if log:
+        ll = np.log(torch.stack(losses).detach().numpy())
+    else:
+        ll = torch.stack(losses).detach().numpy()
+    plt.plot(ll)
+    plt.ylabel(f'{loss_fun} loss')
+    plt.xlabel(f'Epoch')
+    plt.savefig(os.path.join(saveto, 'losses.pdf'))
+    plt.close()
+
+def plot_posterior(df, saveto=''):
+    fig, axes = plt.subplots(nrows=2, ncols=2, figsize=(10, 8))
+    axes[0, 0].hist(df["alpha"], bins=10, edgecolor='black')
+    axes[0, 0].set_title("Histogram of alpha")
+    axes[0, 1].hist(df["beta"], bins=10, edgecolor='black')
+    axes[0, 1].set_title("Histogram of beta")
+    axes[1, 0].hist(df["bx"], bins=10, edgecolor='black')
+    axes[1, 0].set_title("Histogram of bx")
+    axes[1, 1].hist(df["cx"], bins=10, edgecolor='black')
+    axes[1, 1].set_title("Histogram of cx")
+    plt.tight_layout()
+    plt.show()
+    plt.savefig(os.path.join(saveto, 'posterior.pdf'))
+    plt.close()
+
 
 def baseplot(x1, x2=None, x3 = None, transpose=False, xlab=None, ylab=None):
     if transpose:
