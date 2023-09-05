@@ -16,7 +16,7 @@ def plot_fit(ypreds, y, scenario, process, clim = None, save=True):
 
     fig, (ax1, ax2, ax3) = plt.subplots(3,1, figsize=(8, 8), sharex=True, gridspec_kw={'height_ratios': [3,0.8,0.8]})
     if not clim is None:
-        clim = ax1.plot(np.transpose(clim.detach().numpy()), color='gray', label = 'Climatology', zorder=0)
+        clim = ax1.plot(np.transpose(clim.detach().numpy()), color='gray', label = 'Long-term\n Mean', zorder=0)
     true = ax1.plot(np.transpose(y.detach().numpy()), color='red', label='Observed', zorder=1)
     #fit = ax1.plot(np.transpose(ypreds), color='blue', label='Fitted', alpha=0.5)
     fit = ax1.fill_between(np.arange(ypreds.shape[1]), ypreds.transpose().min(axis=1),
@@ -45,7 +45,7 @@ def plot_fit(ypreds, y, scenario, process, clim = None, save=True):
         ax3.plot(np.transpose(ypreds) - np.transpose(y.detach().numpy()[np.newaxis, :]), color='gray', linewidth=0.8)
         ax3.set_ylabel('Absolute error')
     ax3.axhline(y=0, color = 'black', linestyle='--', linewidth = 0.8)
-    ax3.set_xlabel('Time index')
+    ax3.set_xlabel('Generation')
     plt.tight_layout()
     if save:
         plt.savefig(f'results/{scenario}_{process}/verification_setting.pdf')
@@ -55,7 +55,7 @@ def plot_fit2(ypreds, y, scenario, process, clim = None, fhs = None, save=True):
 
     fig, (ax1, ax2) = plt.subplots(2,1, figsize=(8, 8), sharex=True, gridspec_kw={'height_ratios': [3,1]})
     if not clim is None:
-        clim = ax1.plot(np.transpose(clim.detach().numpy()), color='gray', label = 'Climatology', zorder=0)
+        clim = ax1.plot(np.transpose(clim.detach().numpy()), color='gray', label = 'Long-term\n Mean', zorder=0)
     true = ax1.plot(np.transpose(y.detach().numpy()), color='red', label='Observed', zorder=1)
     #fit = ax1.plot(np.transpose(ypreds), color='blue', label='Fitted', alpha=0.5)
     fit = ax1.fill_between(np.arange(ypreds.shape[1]), ypreds.transpose().min(axis=1),
@@ -77,7 +77,7 @@ def plot_fit2(ypreds, y, scenario, process, clim = None, fhs = None, save=True):
             i += 1
     ax2.set_ylabel('Residuals')
     ax2.axhline(y=0, color = 'black', linestyle='--', linewidth = 0.8)
-    ax2.set_xlabel('Time index')
+    ax2.set_xlabel('Generation')
     plt.tight_layout()
     if save:
         plt.savefig(f'results/{scenario}_{process}/verification_setting_anomaly.pdf')
@@ -124,7 +124,7 @@ def plot_all_dynamics(obs, preds, ref, save):
     if save:
         plt.savefig(f'results/dynamics_all.pdf')
 
-def plot_horizons(fha_ricker,fha_reference, fhp_ricker, fhp_reference, fsh, metrics_fh, scenario, process, save):
+def plot_horizons(fha_ricker,fha_reference, fhp_ricker, fhp_reference, fsh, metrics_fh, scenario, process, save, show_upper = False):
     plt.figure(figsize=(9,6))
     x_positions = np.arange(len(metrics_fh))
     x_labels = ['Corr', 'MAE', 'F-Stats', 'CRPS(S)'] # ['Corr', 'MSE', 'MAE', 'CRPS']
@@ -140,11 +140,54 @@ def plot_horizons(fha_ricker,fha_reference, fhp_ricker, fhp_reference, fsh, metr
     plt.ylabel('Forecast horizon', fontweight='bold')
     plt.xlabel('Proficiency', fontweight='bold')
     plt.xticks(x_positions, x_labels)
-    plt.ylim((-3,110))
+    if show_upper:
+        plt.ylim((-10,380))
+    else:
+        plt.ylim((-3,110))
     plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
     plt.tight_layout()
     if save:
         plt.savefig(f'results/{scenario}_{process}/horizons.pdf')
+
+def plot_horizon_maps(mat_ricker, mat_climatology, mat_ricker_perfect, scenario, process, save=True):
+    fig, ax = plt.subplots(2, 3, figsize=(14, 9), sharey=False, sharex=False)
+    custom_min = 0
+    custom_max = 0.6
+
+    heatmap0 = ax[0, 0].imshow(mat_ricker.transpose()[0:, :], vmin=custom_min, vmax=custom_max, cmap='plasma_r')
+    cb = plt.colorbar(heatmap0, ax=ax[0, 0])
+    cb.set_label('CRPS')
+    ax[0, 0].set_ylabel('Day of forecast initialization')
+    ax[0, 0].set_xlabel('Forecast time')
+    ax[0, 0].autoscale(False)
+
+    ax[0, 1].imshow((mat_ricker.transpose()[0:, :] > 0.05), cmap='plasma_r')
+    # plt.colorbar()
+    ax[0, 1].set_ylabel('Day of forecast initialization')
+    ax[0, 1].set_xlabel('Forecast time')
+
+    ax[0, 2].imshow((mat_climatology.transpose()[0:, :] - mat_ricker.transpose()[0:, :]) < -0.05, cmap='plasma_r')
+    # ax[0,2].colorbar()
+    ax[0, 2].set_ylabel('Day of forecast initialization')
+    ax[0, 2].set_xlabel('Forecast time')
+
+    heatmap1 = ax[1, 0].imshow(mat_ricker_perfect.transpose()[0:, :], vmin=custom_min, vmax=custom_max, cmap='plasma_r')
+    cb1 = plt.colorbar(heatmap1, ax=ax[1, 0])
+    cb1.set_label('CRPS')
+    ax[1, 0].set_ylabel('Day of forecast initialization')
+    ax[1, 0].set_xlabel('Forecast time')
+    ax[1, 0].autoscale(False)
+
+    ax[1, 1].imshow((mat_ricker_perfect.transpose()[0:, :] > 0.05), cmap='plasma_r')
+    # ax[0,0].colorbar()
+    ax[1, 1].set_ylabel('Day of forecast initialization')
+    ax[1, 1].set_xlabel('Forecast time')
+
+    fig.delaxes(ax[1, 2])
+    plt.tight_layout()
+
+    if save:
+        plt.savefig(f'results/{scenario}_{process}/horizon_maps.pdf')
 
 def plot_losses(losses, loss_fun, log=True, saveto=''):
     if log:

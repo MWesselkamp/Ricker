@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.special as special
 import math
-from scipy.stats import pearsonr, norm, entropy, ttest_ind
+from scipy.stats import pearsonr, norm, entropy, ttest_ind, f, bartlett
 import sklearn.metrics
 import CRPS.CRPS as pscore
 
@@ -46,7 +46,7 @@ def rolling_rmse(reference, ensemble, standardized = False):
         rmses.append(rmse)
     return np.transpose(np.array(rmses))
 
-def rolling_corrs(reference, ensemble, window = 3, abs = False):
+def rolling_corrs(reference, ensemble, window = 3):
     """
     Rolling correlations between true and predicted dynamics in a moving window.
     Change to cross-correlation?
@@ -58,10 +58,8 @@ def rolling_corrs(reference, ensemble, window = 3, abs = False):
     """
     corrs = [[pearsonr(reference[0,j:j+window], ensemble[i,j:j+window])[0] for i in range(ensemble.shape[0])] for j in range(reference.shape[1]-window)]
     corrs = np.transpose(np.array(corrs))
-    if abs:
-        return abs(corrs)
-    else:
-        return corrs
+
+    return corrs
 
 
 def rolling_crps(reference, ensemble):
@@ -275,3 +273,22 @@ def rolling_nash_sutcliffe(reference, ensemble, window=2):
              j in range(ensemble.shape[1] - window)]
     nse = np.transpose(np.array(nse))
     return nse
+
+
+def fstat(forecast, observation, bartlett_test = False):
+
+    if bartlett_test:
+        bs = np.array([bartlett(forecast[:, i].squeeze(), observation[:,:150].squeeze()) for i in range(forecast.shape[1])])
+        stats = bs[:,0]
+        pvals = bs[:,1]
+    else:
+        vars = [np.var(forecast[:, i]) for i in range(forecast.shape[1])]
+        var_obs = np.var(observation)
+        stats = [(vars[i] / var_obs) for i in range(len(vars))] # ppp = [(1-vars[i]/var_true) for i in range(len(vars))]
+        df1, df2 = forecast.shape[0] - 1, forecast.shape[1] - 1
+        pvals = [f.cdf(stats[i], df1, df2) for i in range(len(stats))]
+    return stats, pvals
+
+def tstat_inverse(t, samples):
+
+    return t/np.sqrt((samples-2+t**2))

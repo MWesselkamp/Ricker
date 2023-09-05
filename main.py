@@ -1,335 +1,283 @@
-import numpy as np
 import matplotlib.pyplot as plt
+plt.rcParams['font.size'] = 18
+import fit_torch as ft
+import pandas as pd
+import numpy as np
 
-from unused_scripts.simulations import generate_data
-from unused_scripts.references import diurnal_climatology
-from metrics import rolling_crps
-from utils import sample_ensemble_member
+from data import ForecastData
+from torch.utils.data import DataLoader
+from visualisations import plot_losses, plot_posterior, plot_horizon_maps, plot_fit2, plot_all_dynamics, plot_horizons
+from CRPS import CRPS
+from metrics import mse, rolling_corrs
 
-np.random.seed(42)
+seed = True
+if seed:
+    np.random.seed(42)
+# ========================#
+# Set simulation setting #
+# ========================#
 
-def metric_map_intrinsic(growth_rates, timesteps, doy_inits, metric, bootstrap_samples):
+fit_model = False
+forecast_all = False
+compute_horizons = True
 
-    if metric == 'deterministic':
-        s = 0.00
-    elif metric == 'stochastic':
-        s = 0.001
+process = 'stochastic'
+scenario = 'chaotic'
 
-    metric_map = []
-    for r in growth_rates:
-        qualities = []
-        for doy in np.arange(0, doy_inits):
-            bs_qualities = []
-            for bs in range(bootstrap_samples):
-                xsim, xobs = generate_data(timesteps=timesteps, growth_rate=r,
-                                           sigma=s, phi=0.00, initial_uncertainty=0.001,
-                                           doy_0=doy, ensemble_size=15)
-                # replace observation by sample from forecast ensemble
-                xobs, xsim, index = sample_ensemble_member(xsim)
+observation_params, initial_params, true_noise, initial_noise = ft.set_parameters(process=process, scenario=scenario)
+y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = ft.create_observations(years=30,
+                                                                                             observation_params=observation_params,
+                                                                                             true_noise=true_noise)
 
-                xsim_leads = xsim[:, (doy_inits - doy):(timesteps)]
-                xobs_leads = xobs[:, (doy_inits - doy):(timesteps)]
+# ============#
+# Fit Model  #
+# ============#
 
-                if metric == 'deterministic':
-                    #quality = np.mean(rolling_corrs(xobs_leads, xsim_leads), axis=0)
-                    #quality = np.mean(abs(np.subtract(xobs_leads, xsim_leads)), axis=0)
-                    xsim_leads = np.mean(xsim_leads, axis=0)
-                    quality = rolling_crps(xobs_leads, xsim_leads)
-                elif metric == 'stochastic':
-                    quality = rolling_crps(xobs_leads, xsim_leads)
-                bs_qualities.append(quality)
-            # take the bootstrap mean
-            bs_qualities = np.mean(np.array(bs_qualities), axis=0)
-            qualities.append(bs_qualities)
-        qualities_matrix = np.array(qualities)
+if fit_model:
 
-        metric_map.append(qualities_matrix)
-
-    return metric_map
-
-
-def metric_map(growth_rates, timesteps, doy_inits, metric, my_dir = ''):
-
-    if metric == 'deterministic':
-        s = 0.00
-    elif metric == 'stochastic':
-        s = 0.001
-
-    metric_map = []
-    for r in growth_rates:
-        qualities = []
-        for doy in np.arange(0, doy_inits):
-
-            xsim, xobs = generate_data(timesteps=timesteps, growth_rate=r,
-                                       sigma=s, phi=0.00, initial_uncertainty=0.001,
-                                       doy_0=doy, ensemble_size=15)
-            xsim_leads = xsim[:, (doy_inits - doy):(timesteps)]
-            xobs_leads = xobs[:, (doy_inits - doy):(timesteps), 0]
-            if metric == 'deterministic':
-                #quality = np.mean(rolling_corrs(xobs_leads, xsim_leads), axis=0)
-                # quality = np.mean(abs(np.subtract(xobs_leads, xsim_leads)), axis=0)
-                xsim_leads = np.mean(xsim_leads, axis=0)
-                quality = rolling_crps(xobs_leads, xsim_leads)
-            elif metric == 'stochastic':
-                quality = rolling_crps(xobs_leads, xsim_leads)
-            qualities.append(quality)
-        qualities_matrix = np.array(qualities)
-
-        metric_map.append(qualities_matrix)
-
-    return metric_map
-
-def get_climatology(scenario, timesteps, doy_inits, growth_rate, s, add_trend=True):
-
-    clim = diurnal_climatology(scenario = scenario, growth_rate=growth_rate, sigma=s, initial_uncertainty=0.001, add_trend=add_trend,
-                               add_noise=False)  # create climatology
-    clim_subset = clim[doy_inits:timesteps, :]
-
-    clims = np.transpose(clim_subset)
-
-    return clims
-
-
-def plot_simulations(scenario, growth_rate, s, add_trend, add_noise=False, my_dir=''):
-    clim = diurnal_climatology(scenario = scenario, growth_rate=growth_rate, sigma=s, initial_uncertainty=0.001, add_trend=True,
-                               add_noise=False)  # create climatology
-    xsim, xobs = generate_data(timesteps=365, growth_rate=growth_rate,
-                               sigma=s, phi=0.00, initial_uncertainty=0.001,
-                               doy_0=0, ensemble_size=15,
-                               environment='exogeneous', add_trend=add_trend, add_noise=add_noise)  # create simulations
-    xobs = xobs[:, :, 0]  # observations
-
-    clim_mean = clim.mean(axis=1)
-    clim_std = clim.std(axis=1)
-
-    plt.plot(np.transpose(clim_mean), color='gray', label='climatology')
-    plt.plot(clim_mean + 2 * clim_std, color='gray', linestyle='--')
-    plt.plot(clim_mean - 2 * clim_std, color='gray', linestyle='--')
-    plt.plot(np.transpose(xsim), color='blue')
-    plt.plot(np.transpose(xobs), color='red', label='observations')
-    plt.legend()
-    plt.xlabel("Day of Year")
-    plt.ylabel("Relative stock biomass")
-    plt.savefig(my_dir)
-    plt.tight_layout()
-    plt.close()
-
-def metric_map_benchmark(growth_rates, timesteps, doy_inits, metric, threshold = False):
-
-    if metric =='deterministic':
-        s = 0.00
+    if process == 'stochastic':
+        fitted_values, losses = ft.fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples=1,
+                                           epochs=20, loss_fun='mse', step_length=10)
     else:
-        s = 0.001
+        fitted_values, losses = ft.fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples=1,
+                                           epochs=20, loss_fun='mse', step_length=20)
 
-    metric_map_benchmark = []
+    fitted_values = pd.DataFrame(fitted_values)
 
-    for r in growth_rates:
+    fitted_values.to_csv(f'results/{scenario}_{process}/fitted_values.csv')
+    plot_posterior(fitted_values, saveto=f'results/{scenario}_{process}')
+    plot_losses(losses, loss_fun='mse', saveto=f'results/{scenario}_{process}')
 
-        scenario = 'imperfect_model'
-        clim_subset = get_climatology(scenario, timesteps, doy_inits, growth_rate=r, s=s, add_trend=False)
-        skill = []
-        plot_simulations(scenario, r, s, add_trend=True, my_dir = f'results/main/simulations_{s}_{r}.pdf')
+# =======================#
+# Forecast all dynamics #
+# =======================#
 
-        for doy in np.arange(0,doy_inits):
-            xsim, xobs = generate_data(timesteps=timesteps, growth_rate=r,
-                                       sigma=s, phi=0.00, initial_uncertainty=0.001,
-                                       doy_0=doy, ensemble_size=15)
-            xsim_leads = xsim[:,(doy_inits-doy):(timesteps)]
-            xobs_leads = xobs[:,(doy_inits-doy):(timesteps),0]
+if forecast_all:
+    obs, preds, ref = ft.get_forecast_scenario()
+    plot_all_dynamics(obs, preds, ref, save=True)
 
-            if metric =='deterministic':
-                #xsim_abs = np.mean(abs(xsim_leads - xobs_leads),axis=0)
-                # clim_abs = np.mean(abs(clim_subset - xobs_leads), axis=0)
-                xsim_leads = np.mean(xsim_leads, axis=0)
-                xsim_crps = rolling_crps(xobs_leads, xsim_leads)
-                clim_leads = np.mean(clim_subset, axis=0)
-                clim_crps = rolling_crps(xobs_leads, clim_leads)
-                skill.append(np.subtract(xsim_crps, clim_crps))
-            else:
-                xsim_crps = rolling_crps(xobs_leads, xsim_leads)
-                clim_crps = rolling_crps(xobs_leads, clim_subset)
-                skill.append(np.subtract(xsim_crps, clim_crps))
+# ================================#
+# Forecast with the one scenario #
+# ================================#
 
-        if threshold:
-            skill = np.array(skill).squeeze() > 0
-        else:
-            skill = np.array(skill).squeeze()
+if 'fitted_values' in globals():
+    print(f"Deleting globally set parameter values.")
+    del(fitted_values)
+    print(f"Loading parameters from previous fit.")
+    fitted_values = pd.read_csv(f'results/{scenario}_{process}/fitted_values.csv', index_col=False)
+    fitted_values = fitted_values.drop(fitted_values.columns[0], axis=1)
+else:
+    print(f"Loading parameters from previous fit.")
+    fitted_values = pd.read_csv(f'results/{scenario}_{process}/fitted_values.csv', index_col=False)
+    fitted_values = fitted_values.drop(fitted_values.columns[0], axis=1)
 
-        metric_map_benchmark.append(skill)
+parameter_samples = ft.get_parameter_samples(fitted_values, uncertainty=0.02)
+yinit, forecast, modelfits = ft.forecast_fitted(y_test, x_test, parameter_samples, initial_params, initial_noise,
+                                             initial_uncertainty=0.01)
 
-    return metric_map_benchmark
+plot_fit2(forecast, y_test, scenario=f"{scenario}", process=f"{process}", clim=climatology, save=False)
 
-def metric_map_benchmark_intrinsic(growth_rates, timesteps, doy_inits, metric, bootstrap_samples, threshold = False):
+# sr = [shapiro(ypreds[:,i])[1] for i in range(ypreds.shape[1])]
+# plt.plot(sr)
 
-    if metric =='deterministic':
-        s = 0.00
-    else:
-        s = 0.001
+# fig, axes = plt.subplots(nrows=7, ncols=1, figsize=(6, 8), sharex=True)
+# for i in range(7):
+#    x = ypreds[:,i]
+#    mu = x.mean()
+#    sigma = x.std()
+#    axes[i].hist(x=climatology[:, i].detach().numpy(),bins=20, alpha=0.5, colors='salmon')
+#    axes[i].hist(x, bins=20, alpha=0.5)
+#    xs = np.linspace(x.min(), x.max(), num=100)
+#    axes[i].plot(xs, stats.norm.pdf(xs, mu, sigma))
+# axes[i].vlines(x = y_test[i].detach().numpy(), ymin = 0, ymax = 50)
 
-    metric_map_benchmark_intrinsic = []
+# for i in range(5):
+#    print('Ensemble', ps.crps_ensemble(y_test[i].detach().numpy(), ypreds[:,i]))
+#    print('Climatology', ps.crps_ensemble(y_test[i].detach().numpy(), climatology.detach().numpy()[:,i]))
 
-    for r in growth_rates:
+# =============================#
+# Forecasting with the fitted #
+# =============================#
 
-        scenario = 'perfect_model'
-        clim_subset = get_climatology(scenario, timesteps, doy_inits, r, s, add_trend=False)
+observation = y_test.detach().numpy()[np.newaxis, :]
+reference = climatology.detach().numpy()
+reference2 = np.tile(reference[:, -1], (reference.shape[1], 1)).transpose()
+obs_perfect = np.mean(forecast, axis=0)[np.newaxis, :]
+ref_perfect = np.mean(reference, axis=0)[np.newaxis, :]
 
-        skill = []
-        plot_simulations(scenario, r, s, add_trend=True, my_dir = f'results/main/simulations_int_{s}_{r}.pdf')
+save = False
+if compute_horizons:
+    print(f'Computing forecast horizons for {scenario}_{process} setting')
+    metrics_fh = ['corr', 'mae', 'fstats', 'crps']  # ['corr', 'mse', 'mae', 'crps']
 
-        for doy in np.arange(0,doy_inits):
-            bs_skill = []
-            for bs in range(bootstrap_samples):
-                xsim, xobs = generate_data(timesteps=timesteps, growth_rate=r,
-                                           sigma=s, phi=0.00, initial_uncertainty=0.001,
-                                           doy_0=doy, ensemble_size=15)
-                # replace observation by sample from forecast ensemble
-                xobs, xsim, index = sample_ensemble_member(xsim)
+    fha_ricker = [ft.get_fh(metric, forecast, observation) for metric in metrics_fh]
+    fhp_ricker = [ft.get_fh(metric, forecast, obs_perfect) for metric in metrics_fh]
+    fha_reference = [ft.get_fh(metric, reference, observation) for metric in metrics_fh]
+    fhp_reference = [ft.get_fh(metric, reference, ref_perfect) for metric in metrics_fh]
 
-                xsim_leads = xsim[:,(doy_inits-doy):(timesteps)]
-                xobs_leads = xobs[:,(doy_inits-doy):(timesteps)]
+    metrics_fsh = ['crps']  # ['mse', 'mae', 'crps']
+    fsh = [None, None, None] + [ft.get_fsh(forecast, reference, observation, fh_metric=m)[0] for m in metrics_fsh]
+    fsh2 = [None, None, None] + [ft.get_fsh(forecast, reference2, observation, fh_metric=m)[0] for m in metrics_fsh]
 
-                if metric =='deterministic':
-                    #xsim_abs = np.mean(abs(xsim_leads - xobs_leads),axis=0)
-                    #clim_abs = np.mean(abs(clim_subset - xobs_leads), axis=0)
-                    xsim_leads = np.mean(xsim_leads, axis=0)
-                    xsim_crps = rolling_crps(xobs_leads, xsim_leads)
-                    clim_leads = np.mean(clim_subset, axis=0)
-                    clim_crps = rolling_crps(xobs_leads, clim_leads)
-                    bs_skill.append(np.subtract(xsim_crps, clim_crps))
-                else:
-                    xsim_crps = rolling_crps(xobs_leads, xsim_leads)
-                    clim_crps = rolling_crps(xobs_leads, clim_subset)
-                    bs_skill.append(np.subtract(xsim_crps, clim_crps))
-            bs_skill = np.mean(np.array(bs_skill), axis=0)
-            skill.append(bs_skill)
+    fhs = pd.DataFrame([fha_ricker, fhp_ricker, fha_reference, fhp_reference, fsh], columns=metrics_fh,
+                       index=['fha_ricker', 'fhp_ricker', 'fha_reference', 'fhp_reference', 'fsh'])
+    if save:
+        fhs.to_csv(f'results/{scenario}_{process}/horizons.csv')
+else:
+    print(f'LOADING forecast horizons from previous run of {scenario}_{process} setting')
+    metrics_fh = ['corr', 'mae', 'fstats', 'crps']
+    fhs = pd.read_csv(f'results/{scenario}_{process}/horizons.csv', index_col=0)
+    fha_ricker = fhs.loc['fha_ricker'].to_numpy()
+    fhp_ricker = fhs.loc['fhp_ricker'].to_numpy()
+    fha_reference = fhs.loc['fha_reference'].to_numpy()
+    fhp_reference = fhs.loc['fhp_reference'].to_numpy()
+    fsh = fhs.loc['fsh'].to_numpy()
 
-        if threshold:
-            skill = np.array(skill).squeeze() > 0
-        else:
-            skill = np.array(skill).squeeze()
+plot_fit2(forecast, y_test, scenario=f"{scenario}", process=f"{process}",
+          clim=climatology, save=save)
 
-        metric_map_benchmark_intrinsic.append(skill)
+if scenario == 'nonchaotic':
+    plot_horizons(fha_ricker, fha_reference, fhp_ricker, fhp_reference, fsh, metrics_fh, scenario, process,
+                  save=save, show_upper=True)
+else:
+    plot_horizons(fha_ricker, fha_reference, fhp_ricker, fhp_reference, fsh, metrics_fh, scenario, process,
+                  save=save, show_upper=True)
 
-    return metric_map_benchmark_intrinsic
+# =====================================#
+# Forecasting with the fitted at same lead times #
+# ================================================#
 
+forecast_days = 110
+lead_time = 110
+data = ForecastData(y_test, x_test, climatology, forecast_days=forecast_days, lead_time=lead_time)
+forecastloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
 
-def plot_metric_maps(deterministic_map, stochastic_map, labels=['CRPS', 'CRPS'], colorbars = True, my_dir=''):
-    plt.rcParams.update({'font.size': 16})
-    fig, (ax1, ax2) = plt.subplots(figsize=(16, 9), ncols=2, nrows=2)
-    pos1 = ax1[0,].imshow(deterministic_map[0], cmap='Greys')
-    ax1[0,].matshow(deterministic_map[0], cmap='Greys')
-    ax1[0,].set_ylabel('Day from Lead')
-    ax1[0,].set_xlabel('Time')
-    ax1[0,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
-                       labels=np.arange(doy_inits, timesteps, step=10))
-    #ax1[0,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits + 5, step=5)[::-1])
-    if colorbars:
-        plt.colorbar(pos1, ax=ax1[0,], label=labels[0])
-    pos2 = ax1[1,].imshow(deterministic_map[1], cmap='Greys')
-    ax1[1,].matshow(deterministic_map[1], cmap='Greys')
-    ax1[1,].set_ylabel('Day from Lead')
-    ax1[1,].set_xlabel('Time')
-    ax1[1,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
-                       labels=np.arange(doy_inits, timesteps, step=10))
-    #ax1[1,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits+5, step=5)[::-1])
-    if colorbars:
-        plt.colorbar(pos2, ax=ax1[1,], label=labels[0])
-    pos1 = ax2[0,].imshow(stochastic_map[0], cmap='Greys')
-    ax2[0,].matshow(stochastic_map[0], cmap='Greys')
-    ax2[0,].set_ylabel('Day from Lead')
-    ax2[0,].set_xlabel('Time')
-    ax2[0,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
-                       labels=np.arange(doy_inits, timesteps, step=10))
-    #ax2[0,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits + 5, step=5)[::-1])
-    if colorbars:
-        plt.colorbar(pos1, ax=ax2[0,], label=labels[1])
-    pos2 = ax2[1,].imshow(stochastic_map[1], cmap='Greys')
-    ax2[1,].matshow(stochastic_map[1], cmap='Greys')
-    ax2[1,].set_ylabel('Day from Lead')
-    ax2[1,].set_xlabel('Time')
-    ax2[1,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
-                       labels=np.arange(doy_inits, timesteps, step=10))
-    #ax2[1,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits+5, step=5)[::-1])
-    if colorbars:
-        plt.colorbar(pos2, ax=ax2[1,], label=labels[1])
-    fig.tight_layout()
-    plt.show()
-    fig.savefig(my_dir)
-    plt.close()
+mat_ricker = np.full((lead_time, forecast_days), np.nan)
+mat_ricker_perfect = np.full((lead_time, forecast_days), np.nan)
+mat_climatology = np.full((lead_time, forecast_days), np.nan)
+mat_climatology_perfect = np.full((lead_time, forecast_days), np.nan)
 
-def plot_metric_map_intersection(similarity_nonchaotic, similarity_chaotic, my_dir):
-    plt.rcParams.update({'font.size': 16})
-    fig, (ax1) = plt.subplots(figsize=(16, 5), ncols=2, nrows=1)
-    ax1[0,].imshow(similarity_nonchaotic, cmap='winter_r')
-    ax1[0,].set_ylabel('Day from Lead')
-    ax1[0,].set_xlabel('Lead (Day of Year)')
-    ax1[0,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
-                           labels=np.arange(doy_inits, timesteps, step=10))
-    #ax1[0,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits + 5, step=5)[::-1])
-    ax1[1,].imshow(similarity_chaotic, cmap='winter_r')
-    ax1[1,].set_ylabel('Day from Lead')
-    ax1[1,].set_xlabel('Time')
-    ax1[1,].set_xticks(ticks=np.arange(0, timesteps - doy_inits, step=10),
-                           labels=np.arange(doy_inits, timesteps, step=10))
-    #ax1[1,].set_yticks(ticks=np.arange(0, doy_inits, step=5), labels=np.arange(5, doy_inits+5, step=5)[::-1])
-    fig.tight_layout()
-    plt.show()
-    fig.savefig(my_dir)
-    plt.close()
-#============================#
-# Practical Forecast horizon #
-#=============================#
+i = 0
+fh_metric = 'crps'
+for states, temps, clim in forecastloader:
 
-growth_rates = [0.1, 0.95]
-timesteps = 120
-doy_inits = 40
+    print('I is: ', i)
+    N0 = states[:, 0]
+    clim = clim.squeeze().detach().numpy()
+    forecast = []
+    for modelfit in modelfits:
+        forecast.append(modelfit.forecast(N0, temps).detach().numpy())
+    forecast = np.array(forecast).squeeze()
+    states = states.squeeze().detach().numpy()
 
-absolute_error = metric_map(growth_rates, timesteps, doy_inits, metric='deterministic')
-crps = metric_map(growth_rates, timesteps, doy_inits, metric='stochastic')
+    if fh_metric == 'crps':
+        performance = [CRPS(forecast[:, i], states[i]).compute()[0] for i in range(forecast.shape[1])]
+        performance_ref = [CRPS(clim[:, i], states[i]).compute()[0] for i in range(clim.shape[1])]
+        mat_ricker[:, i] = performance
+        mat_climatology[:, i] = performance_ref
 
-plot_metric_maps(absolute_error, crps, labels = ['Absolute error', 'CRPS'], my_dir = 'results/main/accuracy.pdf')
+        performance_perfect = [CRPS(forecast[:, i], forecast[:, i].mean(axis=0)).compute()[0] for i in
+                               range(forecast.shape[1])]
+        performance_climatology_perfect = [CRPS(clim[:, i], forecast[:, i].mean(axis=0)).compute()[0] for i in
+                                           range(forecast.shape[1])]
+        mat_ricker_perfect[:, i] = performance_perfect
+        mat_climatology_perfect[:, i] = performance_climatology_perfect
 
-#========================#
-# Forecast skill horizon #
-#========================#
+    i += 1
 
-# benchmark against climatology.
+plot_horizon_maps(mat_ricker, mat_climatology, mat_ricker_perfect, scenario, process, save=True)
 
-absolute_error_skill = metric_map_benchmark(growth_rates, timesteps, doy_inits, metric='deterministic', threshold=True)
-crps_skill = metric_map_benchmark(growth_rates, timesteps, doy_inits, metric='stochastic', threshold=True)
+# =====================================================#
+# Forecasting with the fitted at different lead times #
+# =====================================================#
 
-plot_metric_maps(absolute_error_skill, crps_skill, labels = ['Absolute error skill', 'CRPS skill'], colorbars=False, my_dir = 'results/main/skill.pdf')
+data = ForecastData(y_test, x_test, climatology)
+forecastloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
 
+mat_ricker = np.full((len(y_test), len(y_test)), np.nan)
+mat_climatology = np.full((len(y_test), len(y_test)), np.nan)
 
-#============================#
-# Intrinsic Forecast horizon #
-#============================#
+i = 0
+fh_metric = 'crps'
+for states, temps, clim in forecastloader:
 
-absolute_error_intrinsic = metric_map_intrinsic(growth_rates, timesteps, doy_inits, metric='deterministic', bootstrap_samples=20)
-crps_intrinsic = metric_map_intrinsic(growth_rates, timesteps, doy_inits, metric='stochastic', bootstrap_samples=20)
+    print('I is: ', i)
+    N0 = states[:, 0]
+    clim = clim.squeeze().detach().numpy()
+    forecast = []
+    for modelfit in modelfits:
+        forecast.append(modelfit.forecast(N0, temps).detach().numpy())
+    forecast = np.array(forecast).squeeze()
+    states = states.squeeze().detach().numpy()
 
-plot_metric_maps(absolute_error_intrinsic, crps_intrinsic, labels = ['Absolute error', 'CRPS'], my_dir = 'results/main/accuracy_intrinsic.pdf')
+    if fh_metric == 'crps':
+        performance = [CRPS(forecast[:, i], states[i]).compute()[0] for i in range(forecast.shape[1])]
+        performance_ref = [CRPS(clim[:, i], states[i]).compute()[0] for i in range(clim.shape[1])]
+        mat_ricker[i, i:] = performance
+        mat_climatology[i, i:] = performance_ref
+    elif fh_metric == 'mse':
+        performance = mse(states[np.newaxis, :], forecast)
+        performance_ref = mse(states[np.newaxis, :], clim)
+        mat_ricker[i, i:] = performance
+        mat_climatology[i, i:] = performance_ref
+    elif fh_metric == 'correlation':
+        w = 3
+        performance = np.mean(rolling_corrs(states[np.newaxis, :], forecast, window=w), axis=0)
+        performance_ref = np.mean(rolling_corrs(states[np.newaxis, :], clim, window=w), axis=0)
+        mat_ricker[i, :i + w] = np.nan
+        mat_ricker[i, i + w:] = performance
+        mat_climatology[i, :i + w] = np.nan
+        mat_climatology[i, i + w:] = performance_ref
+    i += 1
 
-#==================================#
-# Intrinsic forecast skill horizon #
-#==================================#
+mat_ricker[np.isinf(mat_ricker)] = np.nan
+mat_ricker_plot = mat_ricker
+if fh_metric == 'nashsutcliffe':
+    fh = mat_ricker <= 0
+    mask = np.isfinite(mat_ricker)
+    mat_ricker_plot[mask] = fh[mask]
+fig, ax = plt.subplots()
+plt.imshow(mat_ricker_plot)
+plt.colorbar()
+plt.xlabel('Day of year')
+plt.ylabel('Forecast length')
+# plt.savefig(f'plots/horizonmap_ricker_{process}_{scenario}_{fh_metric}fh.pdf')
+plt.close()
 
-# benchmark against climatology.
+mat_climatology[np.isinf(mat_climatology)] = np.nan
+mat_climatology_plot = mat_climatology
+if fh_metric == 'nashsutcliffe':
+    fh = mat_climatology <= 0
+    mask = np.isfinite(mat_climatology)
+    mat_climatology_plot[mask] = fh[mask]
+fig, ax = plt.subplots()
+plt.imshow(mat_climatology_plot)
+plt.colorbar()
+plt.xlabel('Day of year')
+plt.ylabel('Forecast length')
+# plt.savefig(f'plots/horizonmap_climatology_{process}_{scenario}_{fh_metric}fh.pdf')
+plt.close()
 
-absolute_error_skill_intrinsic = metric_map_benchmark_intrinsic(growth_rates, timesteps, doy_inits, metric='deterministic', bootstrap_samples=20, threshold=True)
-crps_skill_intrinsic  = metric_map_benchmark_intrinsic(growth_rates, timesteps, doy_inits, metric='stochastic', bootstrap_samples=20,threshold=True)
+if fh_metric != 'correlation':
+    fig, ax = plt.subplots()
+    skill = 1 - (mat_ricker / mat_climatology)  # If mse of climatology is larger, term is larger zero.
+    fh = skill <= 0  # FH of the ricker is reached when mse of climatology drops below ricker mse
+    mask = np.isfinite(skill)
+    skill[mask] = fh[mask]
+    plt.imshow(skill, cmap='autumn_r')
+    plt.colorbar()
+    plt.xlabel('Day of year')
+    plt.ylabel('Forecast length')
+    # plt.savefig(f'plots/horizonmap_skill_{process}_{scenario}_{fh_metric}fh.pdf')
+else:
+    fig, ax = plt.subplots()
+    skill = mat_ricker  # If mse of climatology is larger, term is larger zero.
+    fh = skill < 0.5  # FH of the ricker is reached when mse of climatology drops below ricker mse
+    mask = np.isfinite(skill)
+    skill[mask] = fh[mask]
+    plt.imshow(skill, cmap='autumn_r')
+    plt.colorbar()
+    plt.xlabel('Day of year')
+    plt.ylabel('Forecast length')
 
-plot_metric_maps(absolute_error_skill_intrinsic, crps_skill_intrinsic, labels = ['Absolute error skill', 'CRPS skill'], colorbars=False, my_dir = 'results/main/skill_intrinsic.pdf')
-
-
-#=======================================#
-# Intrinsic vs. practical skill horizon #
-#=======================================#
-
-similarity_nonchaotic = np.logical_and(crps[0], crps_skill_intrinsic[0])
-similarity_chaotic = np.logical_and(crps[1], crps_skill_intrinsic[1])
-
-plot_metric_map_intersection(similarity_nonchaotic, similarity_chaotic, my_dir = 'results/main/skill_intersection.pdf')
-
-prob_nonchaotic = np.sum(similarity_nonchaotic)/similarity_nonchaotic.size
-prob_chaotic = np.sum(similarity_chaotic)/similarity_chaotic.size
+plt.plot([np.argmax(skill[i, i:]) for i in range(skill.shape[0])])
