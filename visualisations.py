@@ -5,7 +5,7 @@ from metrics import mse
 import torch
 import os
 
-def plot_fit(ypreds, y, scenario, process, clim = None, save=True):
+def plot_fit(ypreds, y, dir, clim = None):
 
     fh_metric1 = {'MSE': mse(y.detach().numpy()[np.newaxis, :], ypreds),
                      'MSE_clim': mse(y.detach().numpy()[np.newaxis, :], clim.detach().numpy())}
@@ -47,10 +47,10 @@ def plot_fit(ypreds, y, scenario, process, clim = None, save=True):
     ax3.axhline(y=0, color = 'black', linestyle='--', linewidth = 0.8)
     ax3.set_xlabel('Generation')
     plt.tight_layout()
-    if save:
-        plt.savefig(f'results/{scenario}_{process}/verification_setting.pdf')
 
-def plot_fit2(ypreds, y, scenario, process, clim = None, fhs = None, save=True):
+    plt.savefig(os.path.join(dir, 'verification_setting.pdf'))
+
+def plot_fit2(ypreds, y, dir, clim = None, fhs = None):
 
 
     fig, (ax1, ax2) = plt.subplots(2,1, figsize=(8, 8), sharex=True, gridspec_kw={'height_ratios': [3,1]})
@@ -79,11 +79,11 @@ def plot_fit2(ypreds, y, scenario, process, clim = None, fhs = None, save=True):
     ax2.axhline(y=0, color = 'black', linestyle='--', linewidth = 0.8)
     ax2.set_xlabel('Generation')
     plt.tight_layout()
-    if save:
-        plt.savefig(f'results/{scenario}_{process}/verification_setting_anomaly.pdf')
+
+    plt.savefig(os.path.join(dir, 'verification_setting_anomaly.pdf'))
 
 
-def plot_all_dynamics(obs, preds, ref, save):
+def plot_all_dynamics(obs, preds, ref, dir):
     fig, ax = plt.subplots(2, 2, figsize=(11, 8), sharey=True, sharex=True)
 
     ax[0, 0].plot(ref[1].transpose(), color='gray', alpha=0.9, zorder=0)
@@ -93,7 +93,7 @@ def plot_all_dynamics(obs, preds, ref, save):
     ax[0, 0].plot(preds[1].transpose().mean(axis=1), color='b', alpha=0.5)
     ax[0, 0].set_ylabel('Relative size')
 
-    l1 = ax[0, 1].plot(ref[0].transpose(), color='gray', label='Climatology', alpha=0.9, zorder=0)
+    l1 = ax[0, 1].plot(ref[0].transpose(), color='gray', label='Long-term mean', alpha=0.9, zorder=0)
     l2 = ax[0, 1].plot(obs[0].transpose(), color='red', label='Observed', alpha=0.8, zorder=1)
     l3 = ax[0, 1].fill_between(np.arange(preds[0].shape[1]), preds[0].transpose().min(axis=1),
                                preds[0].transpose().max(axis=1), color='b', alpha=0.4)
@@ -105,14 +105,14 @@ def plot_all_dynamics(obs, preds, ref, save):
                           preds[3].transpose().max(axis=1), color='b', alpha=0.4)
     ax[1, 0].plot(preds[3].transpose().mean(axis=1), color='b', alpha=0.5)
     ax[1, 0].set_ylabel('Relative size')
-    ax[1, 0].set_xlabel('Time index')
+    ax[1, 0].set_xlabel('Generation')
 
     ax[1, 1].plot(ref[2].transpose(), color='gray', zorder=0)
     ax[1, 1].plot(obs[2].transpose(), color='red', alpha=0.6, zorder=1)
     ax[1, 1].fill_between(np.arange(preds[2].shape[1]), preds[2].transpose().min(axis=1),
                           preds[2].transpose().max(axis=1), color='b', alpha=0.4)
     ax[1, 1].plot(preds[2].transpose().mean(axis=1), color='b', alpha=0.5)
-    ax[1, 1].set_xlabel('Time index')
+    ax[1, 1].set_xlabel('Generation')
 
     plt.setp(l1[1:], label="_")
     plt.setp(l2[1:], label="_")
@@ -121,10 +121,9 @@ def plot_all_dynamics(obs, preds, ref, save):
     plt.tight_layout()
     fig.show()
 
-    if save:
-        plt.savefig(f'results/dynamics_all.pdf')
+    plt.savefig(os.path.join(dir,'dynamics_all.pdf'))
 
-def plot_horizons(fha_ricker,fha_reference, fhp_ricker, fhp_reference, fsh, metrics_fh, scenario, process, save, show_upper = False):
+def plot_horizons(fhs, metrics_fh, dir,  show_upper = False):
     plt.figure(figsize=(9,6))
     x_positions = np.arange(len(metrics_fh))
     x_labels = ['Corr', 'MAE', 'F-Stats', 'CRPS(S)'] # ['Corr', 'MSE', 'MAE', 'CRPS']
@@ -132,11 +131,11 @@ def plot_horizons(fha_ricker,fha_reference, fhp_ricker, fhp_reference, fsh, metr
     for i in range(len(x_positions)):
         plt.axvspan(x_positions[i]-0.5, x_positions[i]+1-0.5, facecolor=x_colors[i], alpha=0.5)
     plt.hlines(xmin=min(x_positions)-0.5, xmax=max(x_positions)+0.5, y = 0, linestyles='--', colors='black', linewidth = 0.5)
-    plt.scatter(x_positions-0.2, fha_ricker, marker='D',s=120, color='blue', label='$h_{Ricker}$')
-    plt.scatter(x_positions, fha_reference, marker='D',s=120, color='green', label='$h_{Climatology}$ ')
-    plt.scatter(x_positions-0.2, fhp_ricker, marker='D',s=120, facecolors='none', edgecolors='blue', label='$\hat{h}_{Ricker}$')
-    plt.scatter(x_positions, fhp_reference, marker='D',s=120, facecolors='none', edgecolors='green', label='$\hat{h}_{Climatology}$')
-    plt.scatter(x_positions+0.2, fsh, marker='D',s=120, color='red', label='$h_{skill}$')
+    plt.scatter(x_positions-0.2, fhs.loc['fha_ricker'].to_numpy(), marker='D',s=120, color='blue', label='$h_{Ricker}$')
+    plt.scatter(x_positions, fhs.loc['fha_reference'].to_numpy(), marker='D',s=120, color='green', label='$h_{Climatology}$ ')
+    plt.scatter(x_positions-0.2, fhs.loc['fhp_ricker'].to_numpy(), marker='D',s=120, facecolors='none', edgecolors='blue', label='$\hat{h}_{Ricker}$')
+    plt.scatter(x_positions, fhs.loc['fhp_reference'].to_numpy(), marker='D',s=120, facecolors='none', edgecolors='green', label='$\hat{h}_{Climatology}$')
+    plt.scatter(x_positions+0.2, fhs.loc['fsh'].to_numpy(), marker='D',s=120, color='red', label='$h_{skill}$')
     plt.ylabel('Forecast horizon', fontweight='bold')
     plt.xlabel('Proficiency', fontweight='bold')
     plt.xticks(x_positions, x_labels)
@@ -146,10 +145,10 @@ def plot_horizons(fha_ricker,fha_reference, fhp_ricker, fhp_reference, fsh, metr
         plt.ylim((-3,110))
     plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
     plt.tight_layout()
-    if save:
-        plt.savefig(f'results/{scenario}_{process}/horizons.pdf')
 
-def plot_horizon_maps(mat_ricker, mat_climatology, mat_ricker_perfect, scenario, process, save=True):
+    plt.savefig(os.path.join(dir,'horizons.pdf'))
+
+def plot_horizon_maps(mat_ricker, mat_climatology, mat_ricker_perfect, dir):
     fig, ax = plt.subplots(2, 3, figsize=(14, 9), sharey=False, sharex=False)
     custom_min = 0
     custom_max = 0.6
@@ -186,8 +185,7 @@ def plot_horizon_maps(mat_ricker, mat_climatology, mat_ricker_perfect, scenario,
     fig.delaxes(ax[1, 2])
     plt.tight_layout()
 
-    if save:
-        plt.savefig(f'results/{scenario}_{process}/horizon_maps.pdf')
+    plt.savefig(os.path.join(dir, 'horizon_maps.pdf'))
 
 def plot_losses(losses, loss_fun, log=True, saveto=''):
     if log:
@@ -216,23 +214,33 @@ def plot_posterior(df, saveto=''):
     plt.close()
 
 
-def baseplot(x1, x2=None, x3 = None, transpose=False, xlab=None, ylab=None):
+def baseplot(x1, x2=None, x3 = None, transpose=False, xlab=None, ylab=None,
+             x1lab = None, x2lab = None, x3lab = None, dir = '', name = None):
+
+    plt.rcParams['font.size'] = 18
     if transpose:
         x1 = np.transpose(x1)
         if not x2 is None:
             x2 = np.transpose(x2)
         if not x3 is None:
             x3 = np.transpose(x3)
-    fig = plt.figure()
+    fig = plt.figure(figsize=(8,6))
     ax = fig.add_subplot()
-    ax.plot(x1, alpha=0.5, color="blue")
+    ax.plot(x1, alpha=0.7, color="blue", label = x1lab)
     if not x2 is None:
-        ax.plot(x2, alpha=0.5, color="red")
+        ax.plot(x2, alpha=0.5, color="red", label = x2lab)
     if not x3 is None:
-        ax.plot(x3, alpha=0.5, color="green")
-    ax.set_xlabel(xlab, size=14)
-    ax.set_ylabel(ylab, size=14)
+        ax.plot(x3, alpha=0.5, color="green", label = x3lab)
+    ax.set_xlabel(xlab)
+    ax.set_ylabel(ylab)
+    ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
+    plt.tight_layout()
     fig.show()
+    if name is None:
+        plt.savefig(os.path.join(dir, 'baseplot.pdf'))
+    else:
+        plt.savefig(os.path.join(dir, f'{name}.pdf'))
+
 
 def plot_growth(real_dynamics):
 
@@ -244,25 +252,6 @@ def plot_growth(real_dynamics):
     fig.show()
     fig.savefig('plots/real_dynamics.png')
 
-def plot_posterior(postsamples):
-    """
-    Write a function, that displays posterior distributions.
-     Save plot to plots folder.
-     Move it to a visualizations script.
-     :param ps:
-     :return:
-     """
-
-    fig = plt.figure()
-    ax = fig.add_subplot()
-
-    h = np.transpose(postsamples.numpy())
-    plt.hist(h, bins=30)
-
-    ax.set_xlabel('Parameter value')
-    ax.set_ylabel('Sample frequency')
-    fig.show()
-    fig.savefig('plots/posterior.png')
 
 def plot_trajectories(trajectories, its, true = None):
 

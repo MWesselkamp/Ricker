@@ -1,4 +1,41 @@
 import numpy as np
+import os
+from datetime import datetime
+
+def create_experiment_folder(directory_path):
+    try:
+        # Get the current date and time
+        current_datetime = datetime.now()
+        # Generate a timestamp in the "yymmdd_hhss" format
+        timestamp = current_datetime.strftime("%y%m%d_%H%M")
+        # Create a new folder with the timestamp as the name
+        new_folder_name = f"version_{timestamp}"
+        new_folder_path = os.path.join(directory_path, new_folder_name)
+        os.makedirs(new_folder_path)
+
+        print(f"Created experiment folder: {new_folder_path}")
+
+        return new_folder_path
+
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+
+def create_scenario_folder(directory_path, new_folder_name):
+
+    try:
+        new_folder_path = os.path.join(directory_path, new_folder_name)
+
+        if not os.path.exists(new_folder_path):
+            os.makedirs(new_folder_path)
+            print(f"Created scenario folder: {new_folder_path}")
+        else:
+            print(f"Folder already exists: {new_folder_path}")
+
+        return new_folder_path
+
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+
 
 def lyapunovs(timeseries_derivative, stepwise = False):
     """

@@ -1,21 +1,16 @@
 import torch
 import numpy as np
 import pandas as pd
-import scipy
+
 import os
 import os.path
-import yaml
+import json
 
 from utils import simulate_temperature
-from visualisations import plot_losses
+from visualisations import plot_losses, plot_posterior
 from torch.utils.data import DataLoader
 from data import SimODEData
-from CRPS import CRPS
-from scipy.stats import f
-import properscoring as ps
-from metrics import mse, rolling_corrs, rmse, absolute_differences, fstat, tstat_inverse
 from models import Ricker_Predation, Ricker_Ensemble
-from sklearn.metrics import r2_score
 from loss_functions import crps_loss
 from neuralforecast.losses.pytorch import sCRPS, MQLoss, MAE, QuantileLoss
 from itertools import product
@@ -24,7 +19,7 @@ from itertools import product
 # Fit the Ricker model with gradien descent #
 #===========================================#
 
-def train(y_train,sigma_train, x_train, model, epochs, loss_fun = 'mse', step_length = 2, fit_sigma = True):
+def train(y_train,sigma_train, x_train, model, epochs, loss_fun = 'mse', step_length = 2, fit_sigma = None):
 
 
     data = SimODEData(step_length=step_length, y=y_train, y_sigma=sigma_train, temp=x_train)
@@ -58,9 +53,9 @@ def train(y_train,sigma_train, x_train, model, epochs, loss_fun = 'mse', step_le
 
             output, output_sigma = model(initial_state, temp)
 
-            if (loss_fun == 'mse') & (fit_sigma):
+            if (loss_fun == 'mse') & (fit_sigma is not None):
                 loss = criterion(output, target) + criterion(output_sigma[0], target_upper) + criterion(output_sigma[1], target_lower)
-            elif (loss_fun == 'mse') & (not fit_sigma):
+            elif (loss_fun == 'mse') & (fit_sigma is None):
                 loss = criterion(output, target)
             elif loss_fun == 'crps':
                 # loss = torch.zeros((1), requires_grad=True).clone()
@@ -81,24 +76,38 @@ def train(y_train,sigma_train, x_train, model, epochs, loss_fun = 'mse', step_le
     return losses
 
 
-def save_fit(dictionary, filename, losses, directory_path):
+def model_fit(fit_model, dir, y_train, x_train, sigma_train, initial_params, initial_noise, **kwargs):
 
-    if not os.path.exists(directory_path):
-        # Create the directory if it doesn't exist
-        os.makedirs(directory_path)
-        print(f"Created directory: {directory_path}")
+    if ('fitted_values' not in globals()) & (fit_model):
+
+        fitted_values = []
+        for i in range(kwargs['samples']):
+            # Sample from prior
+            ip = [np.random.normal(i, 0.1, 1)[0] for i in initial_params]
+            model = Ricker_Ensemble(params=ip, noise=initial_noise, initial_uncertainty=None)
+
+            losses = train(y_train, sigma_train, x_train, model,
+                           epochs=kwargs['epochs'], loss_fun=kwargs['loss_fun'], step_length=kwargs['step_length'],
+                           fit_sigma=initial_noise)
+
+            fitted_values.append(model.get_fit())
+            print(model.get_fit())
+
+        fitted_values = pd.DataFrame(fitted_values)
+        fitted_values.to_csv(os.path.join(dir, 'fitted_values.csv'))
+
+        plot_posterior(fitted_values, saveto=dir)
+        plot_losses(losses, loss_fun='mse', saveto=dir)
+
     else:
-        print(f"Directory already exists: {directory_path}")
-    # Convert the dictionary to YAML format
-    yaml_data = yaml.dump(dictionary)
-    # Write the YAML data to a file
-    with open(os.path.join(directory_path, filename), 'w') as file:
-        file.write(yaml_data)
+        print(f"Loading parameters from previous fit.")
+        fitted_values = pd.read_csv(os.path.join(dir, 'fitted_values.csv'), index_col=False)
+        fitted_values = fitted_values.drop(fitted_values.columns[0], axis=1)
 
-    plot_losses(losses, directory_path)
+    return fitted_values
 
 
-def set_parameters(process = 'stochastic', scenario = 'chaotic'):
+def set_parameters(process, scenario, dir):
 
     if scenario == 'chaotic':
         observation_params = [1.08, 1, 0.021, 0.41, 0.5, 1.06,  1, 0.02, 0.62, 0.72] # for chaotic, set r1 = 0.18 and r2 = 0.16 to r1 = 1.08 and r2 = 1.06
@@ -113,9 +122,16 @@ def set_parameters(process = 'stochastic', scenario = 'chaotic'):
         true_noise = 0.05 # 0.2
         initial_noise = None  # [0.01]
 
+    parameters = {"observation_params": observation_params,
+                  "initial_params": initial_params,
+                  "true_noise": true_noise,
+                  "initial_noise": initial_noise}
+    with open(os.path.join(dir, "parameters.json"), "w") as json_file:
+        json.dump(parameters, json_file)
+
     return observation_params, initial_params, true_noise, initial_noise
 # Create observations
-def create_observations(years, observation_params, true_noise):
+def create_observations(years, observation_params, true_noise, full_dynamics = False):
     timesteps = 365*years
     trainsteps = 365*(years-1)
     teststeps = 365*(1)
@@ -133,26 +149,11 @@ def create_observations(years, observation_params, true_noise):
     sigma_train = np.tile(sigma, reps=(years-1))
     sigma_test = sigma
 
-    return y_train, y_test, sigma_train, sigma_test, temp_train, temp_test, climatology
+    if full_dynamics:
+        return dyn_observed.detach().numpy(), temperature
+    else:
+        return y_train, y_test, sigma_train, sigma_test, temp_train, temp_test, climatology
 
-def fit_models(y_train, x_train, sigma_train, initial_params, initial_noise, samples = 20, epochs = 15, loss_fun = 'mse', step_length = 2):
-
-    fitted_values = []
-
-    for i in range(samples):
-        # Sample from prior
-        ip = [np.random.normal(i, 0.1, 1)[0] for i in initial_params]
-        model = Ricker_Ensemble(params=ip, noise=initial_noise, initial_uncertainty=None)
-        if initial_noise is not None:
-            losses = train(y_train, sigma_train, x_train, model, epochs=epochs, loss_fun = loss_fun, step_length = step_length, fit_sigma=True)
-        else:
-            losses = train(y_train, sigma_train, x_train, model, epochs=epochs, loss_fun=loss_fun,
-                           step_length=step_length, fit_sigma=False)
-        print(model.get_fit())
-        fm = model.get_fit()
-        fitted_values.append(fm)
-
-    return fitted_values, losses
 
 def forecast_fitted(y_test, x_test, fitted_values, initial_params, initial_noise, initial_uncertainty = None):
     yinit = []
@@ -196,7 +197,7 @@ def get_parameter_samples(fitted_values, uncertainty = 0.05):
 
     return ip_samples
 
-def get_forecast_scenario():
+def get_forecast_scenario(dir):
 
     np.random.seed(42)
 
@@ -205,11 +206,11 @@ def get_forecast_scenario():
     scenarios = list(product(rows, cols))
     obs, preds, ref = [], [], []
     for i in range(len(scenarios)):
-        observation_params, initial_params, true_noise, initial_noise = set_parameters(process=scenarios[i][0], scenario=scenarios[i][1])
+        observation_params, initial_params, true_noise, initial_noise = set_parameters(process=scenarios[i][0], scenario=scenarios[i][1], dir=dir)
         y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = create_observations(years=30,
                                                                                                      observation_params=observation_params,
                                                                                                      true_noise=true_noise)
-        fitted_values = pd.read_csv(f'results/{scenarios[i][1]}_{scenarios[i][0]}/fitted_values.csv')
+        fitted_values = pd.read_csv(os.path.join(dir, f'{scenarios[i][1]}_{scenarios[i][0]}/fitted_values.csv'))
         fitted_values = fitted_values.drop(fitted_values.columns[0], axis=1)
         parameter_samples = get_parameter_samples(fitted_values,uncertainty=0.02)
         yinit, ypreds, modelfits = forecast_fitted(y_test, x_test, parameter_samples, initial_params, initial_noise,
@@ -219,117 +220,4 @@ def get_forecast_scenario():
         ref.append(climatology.detach().numpy())
 
     return obs, preds, ref
-
-def pointwise_evaluation(forecast, observation, fh_metric, **kwargs):
-
-    if fh_metric == 'crps':
-        try:
-            performance = [CRPS(forecast[:,i], observation[i]).compute()[0] for i in range(forecast.shape[1])]
-        except ValueError:
-            performance = [CRPS(forecast[:,i], observation.squeeze()[i]).compute()[0] for i in range(forecast.shape[1])]
-
-    elif fh_metric == 'ae':
-        #performance = np.mean(absolute_differences(states[np.newaxis,:], forecast), axis=0)
-        performance= np.subtract(observation, forecast)
-
-    elif fh_metric == 'mae':
-        #performance = np.mean(absolute_differences(states[np.newaxis,:], forecast), axis=0)
-        performance= np.mean(absolute_differences(observation, forecast), axis=0)
-
-    elif fh_metric == 'mse':
-        #performance = mse(states[np.newaxis,:], forecast)
-        performance = mse(observation, forecast)
-
-    elif fh_metric == 'rmse':
-        #performance = rmse(states[np.newaxis,:], forecast)
-        performance = rmse(observation, forecast)
-
-    elif fh_metric == 'rsquared':
-        performance = [[r2_score(observation[:j], forecast[i,:j]) for i in range(forecast.shape[0])] for j in range(1,forecast.shape[1])]
-
-    elif fh_metric == 'corr':
-        w = kwargs['w']
-        performance = np.mean(rolling_corrs(observation, forecast, window=w), axis=0)
-
-    elif fh_metric == 'fstats':
-        fstats, pvals = fstat(forecast, observation)
-        performance = fstats
-
-    return np.array(performance)
-def set_threshold(fh_metric, **kwargs):
-
-    if fh_metric == 'mae':
-        anomaly = (kwargs['forecast'] - kwargs['observation'] )
-        threshold = anomaly.std()
-        print('Standard deviation of Anomaly/Residuals: ', threshold)
-
-    elif fh_metric == 'fstats':
-        # args[0] = forecast = ensemble size and forecast length
-        df1, df2 = kwargs['forecast'].shape[0] - 1, kwargs['forecast'].shape[1] - 1
-        threshold = f.ppf(1 - kwargs['alpha']/2, df1, df2)
-        print(f"Critical F at alpha = {kwargs['alpha']}:", threshold)
-
-    elif fh_metric == 'corr':
-        # args[0] = w = size of moving window
-        critical_ts = scipy.stats.t.ppf(1 - kwargs['alpha']/2, kwargs['w'])
-        threshold = np.round(tstat_inverse(critical_ts, samples=kwargs['w']), 4)
-        print(f"Critical r at alpha = {kwargs['alpha']}:", threshold)
-
-    elif fh_metric == "crps":
-        threshold = 0.05
-    elif fh_metric == 'mse':
-        threshold = 0.025
-    elif fh_metric == 'rmse':
-        threshold = 0.025
-
-    return threshold
-
-def forecast_skill_horizon(performance, performance_ref, fh_metric):
-
-    skill = performance_ref - performance #1 - (performance/performance_ref)
-
-    if fh_metric == "crps":
-        reached_fsh = skill < -0.05
-    elif fh_metric == 'mae':
-        reached_fsh = skill < -0.05
-    elif fh_metric == 'mse':
-        reached_fsh = skill < -0.05
-    elif fh_metric == 'rmse':
-        reached_fsh = skill < -0.05
-    elif fh_metric == 'fstats':
-        reached_fsh = skill < -0.05
-
-    if reached_fsh.any():
-        fsh = np.argmax(reached_fsh)
-    else:
-        fsh = len(reached_fsh)
-
-    return fsh, skill
-def forecast_horizon(performance, fh_metric, threshold):
-
-    if fh_metric != "corr":
-        reached_fh = performance > threshold
-    else:
-        # only correlation is better if larger
-        reached_fh = performance < threshold
-
-    if reached_fh.any():
-        fh = np.argmax(reached_fh)
-    else:
-        fh = len(reached_fh)
-
-    return fh
-
-def get_fh(fh_metric, forecast, observation):
-    performance = pointwise_evaluation(forecast, observation, fh_metric=fh_metric, w= 5)
-    threshold = set_threshold(fh_metric, forecast = forecast, observation = observation, w=5, alpha = 0.05)
-    fh = forecast_horizon(performance, fh_metric, threshold)
-
-    return fh
-
-def get_fsh(forecast, reference, obs, fh_metric):
-    performance_forecast = pointwise_evaluation(forecast, obs, fh_metric=fh_metric)
-    performance_reference = pointwise_evaluation(reference, obs, fh_metric=fh_metric)
-    fsh, skill = forecast_skill_horizon(performance_forecast, performance_reference, fh_metric=fh_metric)
-    return fsh, skill
 
