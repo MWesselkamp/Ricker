@@ -50,17 +50,17 @@ def plot_fit(ypreds, y, dir, clim = None):
 
     plt.savefig(os.path.join(dir, 'verification_setting.pdf'))
 
-def plot_fit2(ypreds, y, dir, clim = None, fhs = None):
+def plot_scenario_plus_evaluation(preds, obs, dir, clim = None, fhs = None):
 
 
-    fig, (ax1, ax2) = plt.subplots(2,1, figsize=(8, 8), sharex=True, gridspec_kw={'height_ratios': [3,1]})
+    fig, (ax1, ax2) = plt.subplots(2,1, figsize=(8, 8), sharex=True, gridspec_kw={'height_ratios': [3,1,1]})
     if not clim is None:
         clim = ax1.plot(np.transpose(clim.detach().numpy()), color='gray', label = 'Long-term\n Mean', zorder=0)
-    true = ax1.plot(np.transpose(y.detach().numpy()), color='red', label='Observed', zorder=1)
+    true = ax1.plot(np.transpose(obs.detach().numpy()), color='red', label='Observed', zorder=1)
     #fit = ax1.plot(np.transpose(ypreds), color='blue', label='Fitted', alpha=0.5)
-    fit = ax1.fill_between(np.arange(ypreds.shape[1]), ypreds.transpose().min(axis=1),
-                          ypreds.transpose().max(axis=1), color='b', alpha=0.4)
-    fit_mean = ax1.plot(ypreds.transpose().mean(axis=1), color='b', alpha=0.5, label='Ricker')
+    fit = ax1.fill_between(np.arange(preds.shape[1]), preds.transpose().min(axis=1),
+                          preds.transpose().max(axis=1), color='b', alpha=0.4)
+    fit_mean = ax1.plot(preds.transpose().mean(axis=1), color='b', alpha=0.5, label='Ricker')
     if not clim is None:
         plt.setp(clim[1:], label="_")
 
@@ -68,69 +68,110 @@ def plot_fit2(ypreds, y, dir, clim = None, fhs = None):
     plt.setp(true[1:], label="_")
     ax1.legend()
     ax1.set_ylabel('Relative size')
-    ax2.plot(np.transpose(ypreds) - np.transpose(y.detach().numpy()[np.newaxis, :]), color='gray', linewidth=0.8)
+    ax2.plot(np.transpose(preds) - np.transpose(obs.detach().numpy()[np.newaxis, :]), color='gray', linewidth=0.8)
     if not fhs is None:
         fh_ls = ['--', '-']
         i = 0
         for fh in fhs:
             ax2.vlines(fh, ymin=-1, ymax=1, linestyles=fh_ls[i], color = 'black')
             i += 1
-    ax2.set_ylabel('Residuals')
+    ax2.set_ylabel('Anomaly')
     ax2.axhline(y=0, color = 'black', linestyle='--', linewidth = 0.8)
-    ax2.set_xlabel('Generation')
+    ax2.set_xlabel('Time [Generation]')
     plt.tight_layout()
 
-    plt.savefig(os.path.join(dir, 'verification_setting_anomaly.pdf'))
+    plt.savefig(os.path.join(dir, 'scenario_plus_evaluation.pdf'))
 
 
-def plot_all_dynamics(obs, preds, ref, dir):
-    fig, ax = plt.subplots(2, 2, figsize=(11, 8), sharey=True, sharex=True)
+def plot_all_dynamics(obs, preds, ref, anomalies, dir):
 
-    ax[0, 0].plot(ref[1].transpose(), color='gray', alpha=0.9, zorder=0)
-    ax[0, 0].plot(obs[1].transpose(), color='red', alpha=0.8, zorder=1)
-    ax[0, 0].fill_between(np.arange(preds[1].shape[1]), preds[1].transpose().min(axis=1),
-                          preds[1].transpose().max(axis=1), color='b', alpha=0.4)
-    ax[0, 0].plot(preds[1].transpose().mean(axis=1), color='b', alpha=0.5)
+    fig, ax = plt.subplots(4, 2, figsize=(12, 8), sharex=True,
+                           gridspec_kw={'height_ratios': [2,1,2,1]})
+
+    ax[0, 0].plot(ref['nonchaotic_deterministic'].transpose(), color='gray', alpha=0.9, zorder=0)
+    ax[0, 0].plot(obs['nonchaotic_deterministic'].transpose(), color='magenta', alpha=0.8, zorder=1)
+    ax[0, 0].fill_between(np.arange(preds['nonchaotic_deterministic'].shape[1]),
+                          preds['nonchaotic_deterministic'].transpose().min(axis=1),
+                          preds['nonchaotic_deterministic'].transpose().max(axis=1), color='b', alpha=0.4)
+    ax[0, 0].plot(preds['nonchaotic_deterministic'].transpose().mean(axis=1), color='b', alpha=0.5)
     ax[0, 0].set_ylabel('Relative size')
+    ax[0, 0].yaxis.set_label_coords(-0.31, 0.5)
 
-    l1 = ax[0, 1].plot(ref[0].transpose(), color='gray', label='Long-term mean', alpha=0.9, zorder=0)
-    l2 = ax[0, 1].plot(obs[0].transpose(), color='red', label='Observed', alpha=0.8, zorder=1)
-    l3 = ax[0, 1].fill_between(np.arange(preds[0].shape[1]), preds[0].transpose().min(axis=1),
-                               preds[0].transpose().max(axis=1), color='b', alpha=0.4)
-    l4 = ax[0, 1].plot(preds[0].transpose().mean(axis=1), color='b', alpha=0.5, label='Ricker')
+    ax[1,0].plot(anomalies['nonchaotic_deterministic'][0]['lower'].transpose(), color='lightgray', alpha=0.9, zorder=0)
+    ax[1,0].plot(anomalies['nonchaotic_deterministic'][0]['upper'].transpose(), color='lightgray', alpha=0.9, zorder=0)
+    ax[1, 0].plot(anomalies['nonchaotic_deterministic'][0]['mean'].transpose(), color='gray', alpha=0.9, zorder=0)
+    ax[1,0].set_ylabel('Anomaly')
+    ax[1,0].yaxis.set_label_coords(-0.31, 0.5)
 
-    ax[1, 0].plot(ref[3].transpose(), color='gray', zorder=0)
-    ax[1, 0].plot(obs[3].transpose(), color='red', alpha=0.6, zorder=1)
-    ax[1, 0].fill_between(np.arange(preds[3].shape[1]), preds[3].transpose().min(axis=1),
-                          preds[3].transpose().max(axis=1), color='b', alpha=0.4)
-    ax[1, 0].plot(preds[3].transpose().mean(axis=1), color='b', alpha=0.5)
-    ax[1, 0].set_ylabel('Relative size')
-    ax[1, 0].set_xlabel('Generation')
 
-    ax[1, 1].plot(ref[2].transpose(), color='gray', zorder=0)
-    ax[1, 1].plot(obs[2].transpose(), color='red', alpha=0.6, zorder=1)
-    ax[1, 1].fill_between(np.arange(preds[2].shape[1]), preds[2].transpose().min(axis=1),
-                          preds[2].transpose().max(axis=1), color='b', alpha=0.4)
-    ax[1, 1].plot(preds[2].transpose().mean(axis=1), color='b', alpha=0.5)
-    ax[1, 1].set_xlabel('Generation')
+    l1 = ax[0, 1].plot(ref['chaotic_deterministic'].transpose(), color='gray', label='Long-term mean', alpha=0.9, zorder=0)
+    l2 = ax[0, 1].plot(obs['chaotic_deterministic'].transpose(), color='magenta', label='Observed', alpha=0.8, zorder=1)
+    l3 = ax[0, 1].fill_between(np.arange(preds['chaotic_deterministic'].shape[1]),
+                               preds['chaotic_deterministic'].transpose().min(axis=1),
+                               preds['chaotic_deterministic'].transpose().max(axis=1), color='b', alpha=0.4)
+    l4 = ax[0, 1].plot(preds['chaotic_deterministic'].transpose().mean(axis=1), color='b', alpha=0.5, label='Ricker')
+
+    ax[1,1].plot(anomalies['chaotic_deterministic'][0]['lower'].transpose(), color='lightgray', alpha=0.9, zorder=0)
+    ax[1,1].plot(anomalies['chaotic_deterministic'][0]['upper'].transpose(), color='lightgray', alpha=0.9, zorder=0)
+    ax[1,1].plot(anomalies['chaotic_deterministic'][0]['mean'].transpose(), color='gray', alpha=0.9, zorder=0)
+
+    ax[2, 0].plot(ref['nonchaotic_stochastic'].transpose(), color='gray', zorder=0)
+    ax[2, 0].plot(obs['nonchaotic_stochastic'].transpose(), color='magenta', alpha=0.6, zorder=1)
+    ax[2, 0].fill_between(np.arange(preds['nonchaotic_stochastic'].shape[1]),
+                          preds['nonchaotic_stochastic'].transpose().min(axis=1),
+                          preds['nonchaotic_stochastic'].transpose().max(axis=1), color='b', alpha=0.4)
+    ax[2, 0].plot(preds['nonchaotic_stochastic'].transpose().mean(axis=1), color='b', alpha=0.5)
+    ax[2, 0].set_ylabel('Relative size')
+    ax[2, 0].yaxis.set_label_coords(-0.31, 0.5)
+
+    ax[3, 0].plot(anomalies['nonchaotic_stochastic'][0]['lower'].transpose(), color='lightgray', alpha=0.9, zorder=0)
+    ax[3, 0].plot(anomalies['nonchaotic_stochastic'][0]['upper'].transpose(), color='lightgray', alpha=0.9, zorder=0)
+    ax[3, 0].plot(anomalies['nonchaotic_stochastic'][0]['mean'].transpose(), color='gray', alpha=0.9, zorder=0)
+    ax[3, 0].set_ylabel('Anomaly')
+    ax[3, 0].yaxis.set_label_coords(-0.31, 0.5)
+    ax[3, 0].set_xlabel('Generation')
+
+    ax[2, 1].plot(ref['chaotic_stochastic'].transpose(), color='gray', zorder=0)
+    ax[2, 1].plot(obs['chaotic_stochastic'].transpose(), color='magenta', alpha=0.6, zorder=1)
+    ax[2, 1].fill_between(np.arange(preds['chaotic_stochastic'].shape[1]),
+                          preds['chaotic_stochastic'].transpose().min(axis=1),
+                          preds['chaotic_stochastic'].transpose().max(axis=1), color='b', alpha=0.4)
+    ax[2, 1].plot(preds['chaotic_stochastic'].transpose().mean(axis=1), color='b', alpha=0.5)
+
+    ax[3, 1].plot(anomalies['chaotic_stochastic'][0]['lower'].transpose(), color='lightgray', alpha=0.9, zorder=0)
+    ax[3, 1].plot(anomalies['chaotic_stochastic'][0]['upper'].transpose(), color='lightgray', alpha=0.9, zorder=0)
+    ax[3, 1].plot(anomalies['chaotic_stochastic'][0]['mean'].transpose(), color='gray', alpha=0.9, zorder=0)
+    ax[3, 1].set_xlabel('Time [Generation]')
 
     plt.setp(l1[1:], label="_")
     plt.setp(l2[1:], label="_")
     plt.setp(l4[1:], label="_")
     ax[0, 1].legend(loc='upper left', bbox_to_anchor=(1, 1))
-    plt.tight_layout()
-    fig.show()
 
+    plt.tight_layout()
+    plt.subplots_adjust(hspace=0.07, wspace=0.21)
+    plt.show()
     plt.savefig(os.path.join(dir,'dynamics_all.pdf'))
 
-def plot_horizons(fhs, metrics_fh, dir,  show_upper = False):
+def plot_horizons(fhs, dir,all_fh_lower=None, all_fh_upper=None, n_metrics = 4, show_upper = 380, interval = 1):
     plt.figure(figsize=(9,6))
-    x_positions = np.arange(len(metrics_fh))
-    x_labels = ['Corr', 'MAE', 'F-Stats', 'CRPS(S)'] # ['Corr', 'MSE', 'MAE', 'CRPS']
+    x_positions = np.arange(n_metrics)
+    x_labels = ['Corr', 'Anomaly', 'F-Stats', 'CRPS(S)'] # ['Corr', 'MSE', 'MAE', 'CRPS']
     x_colors = ['gray', 'gray', 'silver', 'lightgray']
     for i in range(len(x_positions)):
         plt.axvspan(x_positions[i]-0.5, x_positions[i]+1-0.5, facecolor=x_colors[i], alpha=0.5)
     plt.hlines(xmin=min(x_positions)-0.5, xmax=max(x_positions)+0.5, y = 0, linestyles='--', colors='black', linewidth = 0.5)
+    if not all_fh_lower is None:
+        for x, y_lower, y_upper in zip(x_positions-0.2, all_fh_lower['fha_ricker'], all_fh_upper['fha_ricker']):
+            plt.plot([x,x], [y_lower,y_upper], color='blue', linewidth=1.1)
+        for x, y_lower, y_upper in zip(x_positions, all_fh_lower['fha_reference'], all_fh_upper['fha_reference']):
+            plt.plot([x,x], [y_lower,y_upper], color='green', linewidth=1.1)
+        for x, y_lower, y_upper in zip(x_positions-0.2, all_fh_lower['fhp_ricker'], all_fh_upper['fhp_ricker']):
+            plt.plot([x,x], [y_lower,y_upper], color='blue', linewidth=1.1, linestyle='--')
+        for x, y_lower, y_upper in zip(x_positions, all_fh_lower['fhp_reference'], all_fh_upper['fhp_reference']):
+            plt.plot([x,x], [y_lower,y_upper], color='green', linewidth=1.1, linestyle='--')
+        for x, y_lower, y_upper in zip(x_positions+0.2, all_fh_lower['fsh'], all_fh_upper['fsh']):
+            plt.plot([x,x], [y_lower,y_upper], color='red', linewidth=1.1, linestyle='-')
     plt.scatter(x_positions-0.2, fhs.loc['fha_ricker'].to_numpy(), marker='D',s=120, color='blue', label='$h_{Ricker}$')
     plt.scatter(x_positions, fhs.loc['fha_reference'].to_numpy(), marker='D',s=120, color='green', label='$h_{Climatology}$ ')
     plt.scatter(x_positions-0.2, fhs.loc['fhp_ricker'].to_numpy(), marker='D',s=120, facecolors='none', edgecolors='blue', label='$\hat{h}_{Ricker}$')
@@ -139,14 +180,11 @@ def plot_horizons(fhs, metrics_fh, dir,  show_upper = False):
     plt.ylabel('Forecast horizon', fontweight='bold')
     plt.xlabel('Proficiency', fontweight='bold')
     plt.xticks(x_positions, x_labels)
-    if show_upper:
-        plt.ylim((-10,380))
-    else:
-        plt.ylim((-3,110))
+    plt.ylim((-10,show_upper))
     plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
     plt.tight_layout()
 
-    plt.savefig(os.path.join(dir,'horizons.pdf'))
+    plt.savefig(os.path.join(dir,f'horizons_{show_upper}_int{interval}.pdf'))
 
 def plot_horizon_maps(mat_ricker, mat_climatology, mat_ricker_perfect, dir):
     fig, ax = plt.subplots(2, 3, figsize=(14, 9), sharey=False, sharex=False)

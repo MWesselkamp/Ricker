@@ -56,36 +56,27 @@ class Ricker(nn.Module):
      Single species extended Ricker Model
     """
 
-    def __init__(self, params, noise=None):
+    def __init__(self, params):
 
         super().__init__()
 
-        if not noise is None:
-            self.model_params = torch.nn.Parameter(torch.tensor(params+noise, requires_grad=True, dtype=torch.double))
-            self.noise = noise
-        else:
-            self.model_params = torch.nn.Parameter(torch.tensor(params, requires_grad=True, dtype=torch.double))
-            self.noise = None
+        self.model_params = torch.nn.Parameter(torch.tensor(params, requires_grad=True, dtype=torch.double))
 
-    def forward(self, N0, Temp):
+    def forward(self, N0, Temp, sigma):
 
-        if not self.noise is None:
-            alpha, beta, bx, cx, sigma = self.model_params
-        else:
-            alpha, beta, bx, cx = self.model_params
+        alpha, beta, bx, cx = self.model_params
 
         Temp = Temp.squeeze()
 
         out = torch.zeros_like(Temp, dtype=torch.double)
         out[0] = N0 # initial value
 
-        if not self.noise is None:
-            for i in range(len(Temp)-1):
-                out[i+1] = out.clone()[i] * torch.exp(alpha * (1 - beta * out.clone()[i] + bx * Temp[i] + cx * Temp[i] ** 2)) \
-                           + sigma*torch.normal(mean=torch.tensor([0.0,]), std=torch.tensor([1.0]))
-        else:
-            for i in range(len(Temp)-1):
-                out[i+1] = out.clone()[i] * torch.exp(alpha * (1 - beta * out.clone()[i] + bx * Temp[i] + cx * Temp[i] ** 2))
+        for i in range(len(Temp)-1):
+            # Introduce randomness
+            epsilon = sigma * torch.normal(mean=torch.tensor([0.0]), std=torch.tensor([1.0]))
+
+            out[i+1] = out.clone()[i] * torch.exp(alpha * (1 - beta * out.clone()[i] + bx * Temp[i] + cx * Temp[i] ** 2)) \
+                           + epsilon
 
         return out
 

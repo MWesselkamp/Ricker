@@ -1,91 +1,32 @@
 import matplotlib.pyplot as plt
 plt.rcParams['font.size'] = 18
-import fit_torch as ft
+import forecast as fc
 import numpy as np
 import os
+import random
+import pandas as pd
 
 from utils import create_experiment_folder, create_scenario_folder
-from visualisations import plot_horizon_maps, plot_fit2, plot_all_dynamics, plot_horizons
-from horizons import get_forecast_horizons, forecast_different_leads
+from visualisations import  plot_all_dynamics, plot_horizons
+from forecast import create_experimental_data
 from itertools import product
+from horizons import Experiment
 
-def run_experiment(experiment_path, process, scenario, fit_model, compute_horizons):
+random.seed(42)
+np.random.seed(42)
 
-    scenario_path = create_scenario_folder(experiment_path, new_folder_name = f'{process}_{scenario}')
-
-    observation_params, initial_params, true_noise, initial_noise = ft.set_parameters(process=process, scenario=scenario,
-                                                                                      dir = scenario_path)
-
-    y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = ft.create_observations(years=30,
-                                                                                                 observation_params=observation_params,
-                                                                                                 true_noise=true_noise)
-
-    # get calibrated parameters
-    fitted_values = ft.model_fit(fit_model, scenario_path,
-                                 y_train, x_train, sigma_train, initial_params, initial_noise,
-                                 samples=1, epochs=15, loss_fun='mse', step_length=10)
-
-    # ================================#
-    # Forecast with the one scenario #
-    # ================================#
-
-
-    parameter_samples = ft.get_parameter_samples(fitted_values, uncertainty=0.02)
-    yinit, forecast, modelfits = ft.forecast_fitted(y_test, x_test, parameter_samples, initial_params, initial_noise,
-                                                 initial_uncertainty=0.01)
-
-    plot_fit2(forecast, y_test, dir = scenario_path, clim=climatology)
-
-    # sr = [shapiro(ypreds[:,i])[1] for i in range(ypreds.shape[1])]
-    # plt.plot(sr)
-
-    # fig, axes = plt.subplots(nrows=7, ncols=1, figsize=(6, 8), sharex=True)
-    # for i in range(7):
-    #    x = ypreds[:,i]
-    #    mu = x.mean()
-    #    sigma = x.std()
-    #    axes[i].hist(x=climatology[:, i].detach().numpy(),bins=20, alpha=0.5, colors='salmon')
-    #    axes[i].hist(x, bins=20, alpha=0.5)
-    #    xs = np.linspace(x.min(), x.max(), num=100)
-    #    axes[i].plot(xs, stats.norm.pdf(xs, mu, sigma))
-    # axes[i].vlines(x = y_test[i].detach().numpy(), ymin = 0, ymax = 50)
-
-    # for i in range(5):
-    #    print('Ensemble', ps.crps_ensemble(y_test[i].detach().numpy(), ypreds[:,i]))
-    #    print('Climatology', ps.crps_ensemble(y_test[i].detach().numpy(), climatology.detach().numpy()[:,i]))
-
-    # =============================#
-    # Forecasting with the fitted #
-    # =============================#
-
-    fhs, metrics_fh = get_forecast_horizons(compute_horizons, y_test, climatology, forecast, dir = scenario_path)
-
-    plot_horizons(fhs, metrics_fh, dir = scenario_path, show_upper=True)
-
-    # =====================================#
-    # Forecasting with the fitted at same lead times #
-    # ================================================#
-
-
-    mat_ricker, mat_climatology, mat_ricker_perfect = forecast_different_leads(y_test, x_test, climatology, modelfits,
-                                                                               forecast_days = 110, lead_time = 110)
-
-    plot_horizon_maps(mat_ricker, mat_climatology, mat_ricker_perfect, dir = scenario_path)
 
 if __name__ == "__main__":
 
-    new_experiment = False
-    seed = True
-
-    if seed:
-        np.random.seed(42)
+    new_experiment = True
+    create_new_data = False
 
     directory_path = "results"
 
     if new_experiment:
         experiment_path = create_experiment_folder(directory_path)
     else:
-        experiment_path = os.path.join(directory_path, 'version_230907_1221')
+        experiment_path = os.path.join(directory_path, 'version_230908_1004')
 
     # ========================#
     # Set simulation setting #
@@ -96,10 +37,70 @@ if __name__ == "__main__":
     rows = ['deterministic', 'stochastic']
     cols = ['chaotic', 'nonchaotic']
     scenarios = list(product(rows, cols))
+    scenario_folders  = [f'{s[1]}_{s[0]}' for s in scenarios]
 
     for s in scenarios:
-        run_experiment(experiment_path, process=s[0], scenario= s[1], fit_model = True, compute_horizons = True)
+        create_scenario_folder(experiment_path, f'{s[1]}_{s[0]}')
 
-    # Forecast all dynamics
-    obs, preds, ref = ft.get_forecast_scenario(dir=experiment_path)
-    plot_all_dynamics(obs, preds, ref, dir = experiment_path)
+    if create_new_data:
+        for s in scenarios:
+            create_experimental_data(experiment_path, process=s[0], scenario= s[1], fit_model = False, compute_horizons = True)
+
+    # Forecast load old experiment #
+    observation, prediction, reference = fc.get_forecast_scenario(dir=os.path.join(directory_path, 'version_230908_1004'))
+
+    plt.plot(prediction['chaotic_stochastic'].transpose())
+    plt.plot(observation['chaotic_stochastic'])
+
+    plt.plot(prediction['chaotic_deterministic'].transpose())
+    plt.plot(observation['chaotic_deterministic'])
+
+
+    # ========================#
+    anomalies = {}
+
+    for s in scenario_folders:
+        obs = observation[s]
+        preds = prediction[s]
+        ref = reference[s]
+
+        # set up experiment
+        experiment = Experiment(obs, preds, ref, dir = os.path.join(experiment_path, s))
+        experiment.compute_horizons()
+
+        experiment.assemble_horizons(interval=1)
+        all_horizons = experiment.horizons
+        all_horizons = pd.DataFrame(all_horizons, columns=['correlation', 'anomaly', 'fstat', 'crps'],
+                                    index=['fha_ricker', 'fhp_ricker', 'fha_reference', 'fhp_reference', 'fsh'])
+        all_horizons.to_csv(os.path.join(experiment_path, s, 'horizons.csv'))
+        plot_horizons(all_horizons, dir=os.path.join(experiment_path, s), show_upper=120, interval=1)
+        plot_horizons(all_horizons, dir=os.path.join(experiment_path, s), show_upper=380, interval=1)
+
+        experiment.assemble_horizons(interval=5)
+        all_horizons = experiment.horizons
+        all_horizons = pd.DataFrame(all_horizons, columns=['correlation', 'anomaly', 'fstat', 'crps'],
+                                    index=['fha_ricker', 'fhp_ricker', 'fha_reference', 'fhp_reference', 'fsh'])
+        all_horizons.to_csv(os.path.join(experiment_path, s, 'horizons.csv'))
+        plot_horizons(all_horizons, dir=os.path.join(experiment_path, s), show_upper=120, interval=5)
+        plot_horizons(all_horizons, dir=os.path.join(experiment_path, s), show_upper=380, interval=5)
+
+        experiment.make_plots()
+
+        anomalies[s] = [experiment.proficiencies['actual_ricker'][1],
+                        experiment.proficiencies['intrinsic_ricker'][1],
+                        experiment.proficiencies['actual_reference'][1],
+                        experiment.proficiencies['intrinsic_reference'][1]]
+
+        experiment.assemble_thresholds(full=False)
+        all_thresholds = pd.DataFrame(experiment.thresholds, columns=['correlation', 'anomaly', 'fstat', 'crps'],
+                                    index=['fha_ricker', 'fhp_ricker', 'fha_reference', 'fhp_reference', 'fsh'])
+        all_thresholds.to_csv(os.path.join(experiment_path, s, 'thresholds.csv'))
+
+    plot_all_dynamics(observation, prediction, reference, anomalies, dir=experiment_path)
+
+
+    directory_path = 'results'
+    experiment_path = os.path.join(directory_path, 'version_231206_1308')
+
+    h_deterministic = pd.read_csv(os.path.join(experiment_path, 'chaotic_deterministic', 'horizons.csv'), index_col=0)
+    h_stochastic = pd.read_csv(os.path.join(experiment_path, 'chaotic_stochastic', 'horizons.csv'), index_col=0)

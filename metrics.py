@@ -9,6 +9,10 @@ def absolute_differences(reference, ensemble, mean = False):
     absolute_differences = abs(np.subtract(reference, ensemble))
     return absolute_differences
 
+def anomaly(reference, ensemble, mean = False):
+    anomaly = np.subtract(reference, ensemble)
+    return anomaly
+
 def rolling_bias(reference, ensemble):
 
     b = []
@@ -290,5 +294,28 @@ def fstat(forecast, observation, bartlett_test = False):
     return stats, pvals
 
 def tstat_inverse(t, samples):
-
     return t/np.sqrt((samples-2+t**2))
+def correlation_standard_error(r, n):
+    return np.sqrt((1 - r ** 2) / (n - 2))
+def variance_standard_error(var, n):
+    return (2 * np.sqrt(var) ** 4) / (n - 1)
+
+def t_statistic_two_samples(X, Y, omega_0  = 0):
+    n = len(X)
+    m = len(Y)
+
+    # Calculate sample means
+    X_bar = np.mean(X)
+    Y_bar = np.mean(Y)
+
+    # Calculate sample variances
+    S_X_squared = np.var(X, ddof=1)
+    S_Y_squared = np.var(Y, ddof=1)
+
+    # Calculate pooled standard deviation
+    pooled_std = np.sqrt(((n - 1) * S_X_squared + (m - 1) * S_Y_squared) / (n + m - 2))
+
+    # Calculate t-statistic
+    t_stat = (X_bar - Y_bar - omega_0) / (pooled_std * np.sqrt(1/n + 1/m))
+
+    return t_stat

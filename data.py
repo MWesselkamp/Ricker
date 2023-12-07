@@ -1,4 +1,12 @@
 from torch.utils.data import Dataset
+import matplotlib.pyplot as plt
+plt.rcParams['font.size'] = 18
+import numpy as np
+import random
+
+random.seed(42)
+np.random.seed(42)
+
 class SimODEData(Dataset):
     """
         A very simple dataset class for simulating ODEs
@@ -49,3 +57,5 @@ class ForecastData(Dataset):
                 return self.y[index:(index+self.lead_time)], self.temp[index:(index+self.lead_time)], self.climatology[:,index:(index+self.lead_time)]
             else:
                 return self.y[index:(index+self.lead_time)], self.temp[index:(index+self.lead_time)]
+
+

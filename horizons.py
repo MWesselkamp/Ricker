@@ -1,330 +1,728 @@
+import matplotlib.pyplot as plt
+plt.rcParams['font.size'] = 18
 import numpy as np
-import scipy
-import pandas as pd
 import os
+import random
 
-from data import ForecastData
-from torch.utils.data import DataLoader
-from CRPS import CRPS
-from scipy.stats import f
-from metrics import mse, rolling_corrs, rmse, absolute_differences, fstat, tstat_inverse
-from sklearn.metrics import r2_score
+from utils import create_scenario_folder
 
-def pointwise_evaluation(forecast, observation, fh_metric, **kwargs):
-    """
-    Evaluate forecast performance based on a specified metric.
+random.seed(42)
+np.random.seed(42)
 
-    Parameters:
-    - forecast (numpy.ndarray): The forecasted values.
-    - observation (numpy.ndarray): The observed values.
-    - fh_metric (str): The forecast evaluation metric to use.
-    - **kwargs: Additional keyword arguments, if needed for certain metrics.
+def correlation_based_horizon(obs, preds, spin_up = 3, dir=''):
 
-    Returns:
-    - numpy.ndarray: An array containing performance scores based on the specified metric.
-    """
+        from metrics import rolling_corrs, tstat_inverse, correlation_standard_error
+        import scipy
 
-    # Check the selected forecast evaluation metric
-    if fh_metric == 'crps':
-        try:
-            # Calculate CRPS (Continuous Ranked Probability Score) for each point in the forecast
-            performance = [CRPS(forecast[:, i], observation[i]).compute()[0] for i in range(forecast.shape[1])]
-        except ValueError:
-            # Handle the case where observation may need to be squeezed
-            performance = [CRPS(forecast[:, i], observation.squeeze()[i]).compute()[0] for i in range(forecast.shape[1])]
+        # Compute rolling correlations
+        c = rolling_corrs(obs.reshape(1,len(obs)), preds, window=10)
 
-    elif fh_metric == 'ae':
-        # Calculate the absolute error between forecast and observation
-        performance = np.subtract(observation, forecast)
+        c_mean = np.mean(c, axis=0)
+        c_mean_se = np.array([correlation_standard_error(c_mean[i], 10) for i in range(c_mean.shape[0])]).T
+        c_mean_se_upper = c_mean + 2 * c_mean_se
+        c_mean_se_lower = c_mean - 2 * c_mean_se
 
-    elif fh_metric == 'mae':
-        # Calculate the mean absolute error
-        performance = np.mean(absolute_differences(observation, forecast), axis=0)
+        # Determine critical value to use as threshold
+        critical_ts = scipy.stats.t.ppf(1 - 0.05/ 2, 10)
+        threshold = np.round(tstat_inverse(critical_ts, samples=10), 4)
 
-    elif fh_metric == 'mse':
-        # Calculate the mean squared error
-        performance = mse(observation, forecast)
+        plt.figure(figsize=(7, 5))
+        plt.plot(c_mean.T, linestyle='-', color='black')
+        plt.plot(c_mean_se_upper.T, linestyle='-', linewidth=0.6, color='green')
+        plt.plot(c_mean_se_lower.T, linestyle='-', linewidth=0.6, color='green')
+        plt.hlines(y=threshold, xmin=0, xmax=len(c_mean), colors='blue', linestyles='--')
+        plt.tight_layout()
+        plt.savefig(os.path.join(dir, 'correlation.pdf'))
+        plt.close()
 
-    elif fh_metric == 'rmse':
-        # Calculate the root mean squared error
-        performance = rmse(observation, forecast)
+        def get_horizon(value, threshold, spin_up):
+            if np.any(value < threshold):
+                if np.argmax(value < threshold) <= spin_up:
+                    return np.argmax(value[spin_up:] < threshold)
+                else:
+                    return np.argmax(value < threshold)
+            else:
+                return len(value)
 
-    elif fh_metric == 'rsquared':
-        # Calculate R-squared values for various forecast lengths
-        performance = [[r2_score(observation[:j], forecast[i, :j]) for i in range(forecast.shape[0])] for j in range(1, forecast.shape[1])]
+        # Get forecast horizon
+        h_mean = get_horizon(c_mean, threshold, spin_up)
+        h_upper = get_horizon(c_mean_se_upper, threshold, spin_up)
+        h_lower = get_horizon(c_mean_se_lower, threshold, spin_up)
+        print('Correlation based forecast horizon with uncertainties:', h_mean, h_upper, h_lower)
+        horizons = [h_mean, h_upper, h_lower]
 
-    elif fh_metric == 'corr':
-        # Calculate rolling correlations with a specified window size (w)
-        w = kwargs['w']
-        performance = np.mean(rolling_corrs(observation, forecast, window=w), axis=0)
+        return {'metrics': {'mean':c_mean, 'mean_sd':c_mean_se, 'upper':c_mean_se_upper, 'lower':c_mean_se_lower},
+                'horizons': h_mean,
+                'thresholds': threshold}
 
-    elif fh_metric == 'fstats':
-        # Calculate F-statistics and p-values for the forecast and observation
-        fstats, pvals = fstat(forecast, observation)
-        performance = fstats
+def anomaly_quantile_horizon(obs, preds, dir = ''):
 
-    # Return the computed performance scores as a numpy array
-    return np.array(performance)
+        from metrics import anomaly
 
-def set_threshold(fh_metric, **kwargs):
-    """
-    Set a threshold value based on the specified forecast evaluation metric.
+        an = anomaly(obs, preds)
+        an_mean = np.mean(an, axis=0)
+        an_var = np.var(an, axis=0)
+        an_var_sd = (2 * np.sqrt(an_var) ** 4) / (an.shape[0] - 1)
+        an_mean_upper = an_mean + 2 * np.sqrt(an_var) + 2 * an_var_sd
+        an_mean_lower = an_mean - 2 * np.sqrt(an_var) - 2 * an_var_sd
 
-    Parameters:
-    - fh_metric (str): The forecast evaluation metric to use.
-    - **kwargs: Additional keyword arguments, which may vary depending on the metric.
+        # Determine critical value to use as threshold: confidence interval of 95% total anomaly
+        upper_threshold = an.mean() + 2 * an.std()
+        lower_threshold = an.mean() - 2 * an.std()
 
-    Returns:
-    - float: The computed threshold value.
-    """
+        plt.figure(figsize=(7, 5))
+        plt.plot(an_mean, linestyle='-', color='black')
+        plt.plot(an_mean_upper, linestyle='-', linewidth=0.6, color='green')
+        plt.plot(an_mean_lower, linestyle='-', linewidth=0.6, color='green')
+        plt.hlines(y=upper_threshold, xmin=0, xmax=len(an_mean), colors='blue', linestyles='--')
+        plt.hlines(y=lower_threshold, xmin=0, xmax=len(an_mean), colors='blue', linestyles='--')
+        plt.tight_layout()
+        plt.savefig(os.path.join(dir, 'anomaly_quantile.pdf'))
+        plt.close()
 
-    # Check the selected forecast evaluation metric
-    if fh_metric == 'mae':
-        # Calculate the threshold based on the standard deviation of anomalies/residuals
-        anomaly = (kwargs['forecast'] - kwargs['observation'])
-        threshold = anomaly.std()
-        print('Standard deviation of Anomaly/Residuals:', threshold)
+        # Get forecast horizon
+        def get_horizon(value, upper_threshold = None, lower_threshold = None):
+            if (np.any((value > upper_threshold) | (value < lower_threshold))):
+                return np.argmax(((value > upper_threshold)| (value < lower_threshold)))
+            else:
+                return len(value)
 
-    elif fh_metric == 'fstats':
+        h_mean = get_horizon(an_mean, upper_threshold, lower_threshold)
+        h_upper = get_horizon(an_mean_upper, upper_threshold, lower_threshold)
+        h_lower = get_horizon(an_mean_lower, upper_threshold, lower_threshold)
+        h_upper = max(h_mean, h_upper)
+        h_lower = min(h_mean, h_lower)
+        print('Anomaly based forecast horizon with uncertainties:', h_mean, h_upper, h_lower)
+        horizons = [h_mean, h_upper, h_lower]
+        threshold = abs(upper_threshold)
+
+        return {'metrics': {'mean':an_mean, 'mean_sd':an_var, 'upper':an_mean_upper, 'lower':an_mean_lower},
+                'horizons': h_mean,
+                'thresholds': threshold}
+def anomaly_quantile_skill_horizon(obs, preds, ref):
+
+        out_ricker = anomaly_quantile_horizon(obs, preds)
+        out_reference = anomaly_quantile_horizon(obs, ref)
+
+        mean_skill = out_ricker[('anomaly')][0] / out_reference['anomaly'][0]
+
+        mean_skill_sigmaAB = np.corrcoef(out_ricker['anomaly'][0], out_reference['anomaly'][0])[0, 1] * out_ricker['anomaly'][1] * \
+                             out_reference['anomaly'][1]
+        skill_sd = mean_skill ** 2 * ((out_ricker['anomaly'][1] / out_ricker['anomaly'][0]) ** 2 + (
+                    out_reference['anomaly'][1] / out_reference['anomaly'][0]) ** 2) - 2 * mean_skill_sigmaAB / (
+                               out_ricker['anomaly'][0] * out_reference['anomaly'][0])
+
+        upper_skill = mean_skill + 2 * skill_sd
+        lower_skill = mean_skill - 2 * skill_sd
+
+        plt.figure(figsize=(7, 5))
+        plt.plot(mean_skill, linestyle='-', color='black')
+        plt.plot(upper_skill, linestyle='-', linewidth=0.6, color='green')
+        plt.plot(lower_skill, linestyle='-', linewidth=0.6, color='green')
+        plt.close()
+
+        def get_horizon(value, threshold=1):
+            if np.any(value < threshold):
+                if np.argmax(value < threshold) <= 1:
+                    return np.argmax(value[1:] < threshold)
+                else:
+                    return np.argmax(value < threshold)
+            else:
+                return len(value)
+
+        hmean = get_horizon(mean_skill, 1)
+        hupper = get_horizon(upper_skill, 1)
+        hlower = get_horizon(lower_skill, 1)
+
+        print('Anomaly based forecast skill horizon with uncertainties:', hmean)
+
+        return {'horizons': [hmean, hupper, hlower],
+                'thresholds': 1}
+
+def cumulative_fstatistics_skill_horizon(obs, preds, ref, spin_up = 5, dir = ''):
+
+        from scipy.stats import f
+        from metrics import anomaly, variance_standard_error
+
+        an_preds = anomaly(obs, preds)
+        an_ref = anomaly(obs, ref)
+
+        # Compute within time step variance of anomalies
+        # we skip the first step here because we cannot compute the variance of a single value with the total variance
+        var_within = [np.var(an_preds[:, i]) for i in range(an_preds.shape[1])]
+        # Compute standard error of within time step variance
+        var_within_sd = np.array([variance_standard_error(var_within[i], an_preds.shape[0]) for i in range(len(var_within))])
+
+        # Compute total variance of anomalies
+        var_reference = np.array([np.var(an_ref[:, i]) for i in range(an_ref.shape[1])])
+        var_reference_sd = np.array(
+            [variance_standard_error(var_reference[i], an_ref.shape[0]) for i in range(len(var_reference))])
+
+        var_within_samples = np.array(
+            [np.random.normal(var_within[i], var_within_sd[i], 1000) for i in range(len(var_within))])
+        var_total_samples = np.array(
+            [np.random.normal(var_reference[i], var_reference_sd[i], 1000) for i in range(len(var_reference))])
+
+        rhoAB = np.array([np.corrcoef(var_within_samples[i], var_total_samples[i])[0, 1] for i in range(len(var_within))])
+        sigmaAB = np.array([var_within_sd[i] * var_reference_sd[i] * rhoAB[i] for i in range(len(var_within))])
+
+        # Compute F-statistics, the function to which we add the error.
+        # Null hypothesis: var_reference = var_within
+        # Alternative hypothesis:  var_within > var_reference
+        fstats_mean = np.array([(var_within[i] / var_reference[i]) for i in range(len(var_within))])
+
+        # Compute variance of F-statistics based on https://en.wikipedia.org/wiki/Propagation_of_uncertainty
+        fstats_var = np.array([(fstats_mean[i] ** 2 *
+                                ((var_within_sd[i] / var_within[i]) ** 2 +
+                                 (var_reference_sd[i] / var_reference[i]) ** 2 -
+                                 2 * sigmaAB[i] / (var_reference[i] * var_within[i]))) for i in range(len(var_within))])
+        fstats_sd = np.sqrt(fstats_var)
+
+        # Compute upper and lower bounds of F-statistics
+        fstats_upper = fstats_mean + 2 * fstats_sd
+        fstats_lower = fstats_mean - 2 * fstats_sd
+
         # Calculate the threshold based on the critical F-statistic value
-        df1, df2 = kwargs['forecast'].shape[0] - 1, kwargs['forecast'].shape[1] - 1
-        threshold = f.ppf(1 - kwargs['alpha'] / 2, df1, df2)
-        print(f"Critical F at alpha = {kwargs['alpha']}:", threshold)
+        thresholds = np.array([f.ppf(1 - 0.05 / 2, (an_preds.shape[0] - 1), (len(var_reference[:i])+1)*an_ref.shape[0]) for i in range(var_reference.shape[0])])
+        # pvals = [f.cdf(stats[i], df1, df2) for i in range(len(stats))]
+        # reject Null if F is larger than critical value
 
-    elif fh_metric == 'corr':
-        # Calculate the threshold based on the critical t-statistic value for correlations
-        critical_ts = scipy.stats.t.ppf(1 - kwargs['alpha'] / 2, kwargs['w'])
-        threshold = np.round(tstat_inverse(critical_ts, samples=kwargs['w']), 4)
-        print(f"Critical r at alpha = {kwargs['alpha']}:", threshold)
+        fig, (ax1, ax2, ax3) = plt.subplots(nrows=3, figsize=(8, 7))
+        ax1.plot(an_preds.T[:, (spin_up - 1):], linestyle='-', color='purple', alpha=0.6)
+        ax1.plot(an_ref.T[:, (spin_up - 1):], linestyle='-', color='magenta', alpha=0.1)
+        ax1.set_ylim(-2, 2)
+        ax1.set_ylabel('Anomaly')
+        ax2.plot(var_within[(spin_up - 1):], linestyle='-', linewidth=1.4, color='purple', label='forecast')
+        ax2.plot(var_reference[(spin_up - 1):], linestyle='-', linewidth=1.4, color='magenta', label='reference')
+        ax2.set_ylabel('Variances')
+        ax2.legend(loc='upper right')
+        ax3.plot(fstats_mean[(spin_up - 1):], linestyle='-', color='black')
+        ax3.plot(fstats_upper[(spin_up - 1):], linestyle='-', linewidth=1.1, color='green')
+        ax3.plot(fstats_lower[(spin_up - 1):], linestyle='-', linewidth=1.1, color='green')
+        ax3.plot(thresholds[(spin_up - 1):], linestyle='--', linewidth=1.3, color='blue', label='threshold')
+        ax3.legend(loc='upper right')
+        ax3.set_ylabel('F-statistic')
+        ax3.set_xlabel('Forecast time')
+        plt.tight_layout()
+        plt.savefig(os.path.join(dir, 'fstats_skill.pdf'))
+        plt.close()
 
-    elif fh_metric == "crps":
-        # Set a fixed threshold value for CRPS
-        threshold = 0.05
+def cumulative_fstatistics_horizon(obs, preds, spin_up = 1, interval = 1, dir = ''):
 
-    elif fh_metric == 'mse':
-        # Set a fixed threshold value for Mean Squared Error (MSE)
+        from scipy.stats import f
+        from metrics import anomaly, variance_standard_error
+
+        an = anomaly(obs, preds)
+
+        # Compute within time step variance of anomalies
+        # we skip the first step here because we cannot compute the variance of a single value with the total variance
+        var_within = [np.var(an[:, i]) for i in range(1, an.shape[1])]
+        # Compute standard error of within time step variance
+        var_within_sd = np.array([variance_standard_error(var_within[i], an.shape[0]) for i in range(len(var_within))])
+
+        # Compute total variance of anomalies
+        var_total = np.array([np.var(an[:, :i]) for i in range(1, an.shape[1])])
+        var_total_sd = np.array(
+            [variance_standard_error(var_total[i], (len(var_total[:i])+1)*an.shape[0]) for i in range(len(var_total))])
+
+        var_within_samples = np.array(
+            [np.random.normal(var_within[i], var_within_sd[i], 1000) for i in range(len(var_within))])
+        var_total_samples = np.array(
+            [np.random.normal(var_total[i], var_total_sd[i], 1000) for i in range(len(var_total))])
+
+        rhoAB = np.array([np.corrcoef(var_within_samples[i], var_total_samples[i])[0, 1] for i in range(len(var_within))])
+        sigmaAB = np.array([var_within_sd[i] * var_total_sd[i] * rhoAB[i] for i in range(len(var_within))])
+
+        # Compute F-statistics, the function to which we add the error.
+        fstats_mean = np.array([(var_within[i] / var_total[i]) for i in range(len(var_within))])
+
+        # Compute variance of F-statistics based on https://en.wikipedia.org/wiki/Propagation_of_uncertainty
+        fstats_var = np.array([(fstats_mean[i] ** 2 *
+                                ((var_within_sd[i] / var_within[i]) ** 2 +
+                                 (var_total_sd[i] / var_total[i]) ** 2 -
+                                 2 * sigmaAB[i] / (var_total[i] * var_within[i]))) for i in range(len(var_within))])
+        fstats_sd = np.sqrt(fstats_var)
+
+        # Compute upper and lower bounds of F-statistics
+        fstats_upper = fstats_mean + 2 * fstats_sd
+        fstats_lower = fstats_mean - 2 * fstats_sd
+
+        # Calculate the threshold based on the critical F-statistic value
+        thresholds = np.array([f.ppf(1 - 0.05 / 2, (an.shape[0] - 1), (len(var_total[:i])+1)*an.shape[0]) for i in range(var_total.shape[0])])
+        # pvals = [f.cdf(stats[i], df1, df2) for i in range(len(stats))]
+
+        fig, (ax1, ax2, ax3) = plt.subplots(nrows=3, figsize=(8, 7))
+        ax1.plot(an.T[:,(spin_up - 1):], linestyle='-', color='gray')
+        ax1.set_ylabel('Anomaly')
+        ax2.plot(var_within[(spin_up-1):], linestyle='-', linewidth=1.2, color='purple', label='forecast')
+        ax2.plot(var_total[(spin_up - 1):], linestyle='-', linewidth=1.2, color='magenta', label='cumulative')
+        ax2.set_ylabel('Variances')
+        ax2.legend(loc='upper right')
+        ax3.plot(fstats_mean[(spin_up - 1):], linestyle='-', color='black')
+        ax3.plot(fstats_upper[(spin_up - 1):], linestyle='-', linewidth=1.1, color='green')
+        ax3.plot(fstats_lower[(spin_up - 1):], linestyle='-', linewidth=1.1, color='green')
+        ax3.plot(thresholds[(spin_up - 1):], linestyle='-', linewidth=1.1, color='blue', label='threshold')
+        ax3.legend(loc='upper right')
+        ax3.set_ylabel('F-statistic')
+        ax3.set_xlabel('Forecast time')
+        plt.tight_layout()
+        plt.savefig(os.path.join(dir, 'fstats_cumulative.pdf'))
+        plt.close()
+
+        # Get forecast horizon
+        def get_horizon(value, threshold, spin_up, interval = 1):
+            if np.any(value > threshold):
+                if interval == 1:
+                    if np.argmax(value > threshold) <= spin_up:
+                        return np.argmax(value[spin_up:] > threshold[spin_up:])
+                    else:
+                        return np.argmax(value > threshold)
+                else:
+                    threshold_reached = value < threshold
+                    # Define a kernel for convolution (moving window of size 3)
+                    kernel = np.ones(interval)
+                    # Use convolution to sum up elements in the moving window
+                    result = np.convolve(threshold_reached.astype(int), kernel, mode='valid')
+                    return np.argmax(result == 3)
+            else:
+                return len(value)
+
+        h_mean = get_horizon(fstats_mean, thresholds, spin_up)
+        h_upper = get_horizon(fstats_upper, thresholds, spin_up)
+        h_lower = get_horizon(fstats_lower, thresholds, spin_up)
+
+        print('Cumulative fstatistics forecast horizon with uncertainties:', h_mean, h_upper, h_lower)
+        horizons = [h_mean, h_upper, h_lower]
+
+        return {'horizons': h_mean,
+                'metrics': {'mean':fstats_mean,'mean_sd':fstats_sd, 'upper':fstats_upper, 'lower':fstats_lower},
+                'thresholds': thresholds,
+                'additionals': {'anomaly': an,'var_within':var_within,'var_total':var_total} }
+
+def cumulative_tstatistics_skill_horizon(obs, preds, ref, spin_up = 10, dir = ''):
+
+        from scipy.stats import t
+        from metrics import anomaly, variance_standard_error, t_statistic_two_samples
+
+        an_preds = anomaly(obs, preds)
+        an_ref = anomaly(obs, ref)
+
+        # Compute within time step variance of anomalies
+        # we skip the first step here because we cannot compute the variance of a single value with the total variance
+        t_stat = np.array([t_statistic_two_samples(an_preds[:, (i-spin_up):i], an_ref[:,(i-spin_up):i], omega_0=0.0) for i in range(spin_up, an_preds.shape[1])])
+
+        df = an_preds.shape[0]*spin_up + an_ref.shape[0]*spin_up - 2
+        # Calculate critical t-value
+        threshold = t.ppf(1 - 0.5 * 0.05, df)
+
+        fig, (ax1, ax2) = plt.subplots(nrows=2, figsize=(8, 6))
+        ax1.plot(an_preds.T[:, (spin_up - 1):], linestyle='-', color='purple', alpha=0.6)
+        ax1.plot(an_ref.T[:, (spin_up - 1):], linestyle='-', color='magenta', alpha=0.3)
+        ax1.set_ylabel('Anomaly')
+        ax1.legend(loc='upper right')
+        ax2.plot(t_stat, linestyle='-', color='black')
+        ax2.hlines(threshold,xmin=0, xmax= len(t_stat), linestyle='-', linewidth=1.1, color='blue', label='threshold')
+        ax2.set_ylabel('T-statistic')
+        ax2.set_xlabel('Forecast time')
+        plt.tight_layout()
+        plt.savefig(os.path.join(dir, 'tstats.pdf'))
+        plt.close()
+
+        # Get forecast horizon
+        def get_horizon(value, threshold):
+            if np.any(np.abs(value) > threshold):
+                return np.argmax(np.abs(value) > threshold)
+            else:
+                return len(value)
+
+        h_mean = get_horizon(t_stat, threshold)
+
+        print('Tstatistics forecast horizon:', h_mean)
+
+        return {'horizons': h_mean,
+                'metrics': {'mean':t_stat},
+                'thresholds':threshold}
+
+
+def fstatistics_horizon(obs, preds, dir=''):
+
+        from scipy.stats import f
+        from metrics import anomaly, variance_standard_error
+
+        an = anomaly(obs, preds)
+
+        # Compute within time step variance of anomalies
+        var_within = [np.var(an[:, i]) for i in range(an.shape[1])]
+        # Compute standard error of within time step variance
+        var_within_sd = np.array([variance_standard_error(var_within[i], an.shape[0]) for i in range(len(var_within))])
+
+        # Compute total variance of anomalies
+        var_total = np.var(an)
+        # Compute standard error of total variance
+        var_total_sd = variance_standard_error(var_total, len(var_within))
+
+        # Compute covariance between within time step variance and total variance
+        # Sample from normal distribution with mean and standard deviation of total variance for correlation
+        var_total_samples = np.random.normal(var_total, var_total_sd, 1000)
+        # Sample from normal distribution with mean and standard deviation of within time step variance for correlation
+        var_with_samples = np.array([np.random.normal(var_within[i], var_within_sd[i], 1000) for i in range(len(var_within))])
+        rhoAB = np.array([np.corrcoef(var_with_samples[i], var_total_samples)[0,1] for i in range(len(var_within))])
+        sigmaAB = np.array([var_within_sd[i]*var_total_sd*rhoAB[i] for i in range(len(var_within))])
+
+        # Compute F-statistics, the function to which we add the error.
+        fstats_mean = np.array([(var_within[i] / var_total) for i in range(len(var_within))])
+
+        # Compute variance of F-statistics based on https://en.wikipedia.org/wiki/Propagation_of_uncertainty
+        fstats_var = np.array([(fstats_mean[i]**2 *
+                                ((var_within_sd[i] / var_within[i])**2  +
+                                (var_total_sd / var_total)**2 -
+                                2* sigmaAB[i] / (var_total * var_within[i]))) for i in range(len(var_within))])
+        fstats_sd = np.sqrt(fstats_var)
+
+        # Compute upper and lower bounds of F-statistics
+        fstats_upper = fstats_mean + 2 * fstats_sd
+        fstats_lower = fstats_mean - 2 * fstats_sd
+
+        # Calculate the threshold based on the critical F-statistic value
+        df1, df2 = 1000 - 1, an.shape[1] - 1
+        threshold = f.ppf(1 - 0.05 / 2, df1, df2)
+        # pvals = [f.cdf(stats[i], df1, df2) for i in range(len(stats))]
+
+        plt.figure(figsize=(7, 5))
+        plt.plot(fstats_mean, linestyle='-', color='black')
+        plt.plot(fstats_upper, linestyle='-', linewidth=0.6, color='green')
+        plt.plot(fstats_lower, linestyle='-', linewidth=0.6, color='green')
+        plt.hlines(y=threshold, xmin=0, xmax=len(fstats_mean), colors='blue', linestyles='--')
+        plt.tight_layout()
+        plt.savefig(os.path.join(dir, 'fstats.pdf'))
+        plt.close()
+
+        # Get forecast horizon
+        def get_horizon(value, threshold):
+            if np.any(value > threshold):
+                return np.argmax(value > threshold)
+            else:
+                return len(value)
+
+        h_mean = get_horizon(fstats_mean, threshold)
+        h_upper = get_horizon(fstats_upper, threshold)
+        h_lower = get_horizon(fstats_lower, threshold)
+
+        print('Forecast horizon with uncertainties:', h_mean, h_upper, h_lower)
+        horizons = [h_mean, h_upper, h_lower]
+
+        return {'horizons': h_mean,
+                'metrics': {'mean':fstats_mean, 'mean_sd':fstats_sd, 'upper':fstats_upper, 'lower':fstats_lower},
+                'thresholds':threshold}
+
+def crps_horizon(obs, preds, dir = ''):
+
+        from properscoring import crps_gaussian
+        from metrics import variance_standard_error
+
+        # Define the Gaussian function
+
+        # Fit the Gaussian distribution to the data
+        mu_init = np.array([np.mean(preds[:, i]) for i in range(len(preds[0, :]))])
+        mu_init_sd = np.array([np.std(preds[:, i])/np.sqrt(len(preds[:, 0])) for i in range(len(preds[0, :]))])
+
+        sigma_init = np.array([np.sqrt(np.var(preds[:, i])) for i in range(len(preds[0, :]))])
+        sigma_init_sd = np.array([(sigma_init[i]*0.5*variance_standard_error(np.var(preds[:, i]), len(preds[:, 0]))/np.var(preds[:, i]))**2 for i in range(len(preds[0, :]))])
+
+        # Sample mu and sigma from normal distribution
+        mu_samples = np.array([np.random.normal(mu_init[i], mu_init_sd[i], 500) for i in range(len(mu_init))])
+        sigma_samples = np.array([np.random.normal(sigma_init[i], sigma_init_sd[i], 500) for i in range(len(sigma_init))])
+
+        # Compute CRPS for each sample
+        crps_samples = np.array([crps_gaussian(obs[i], mu_samples[i, :], sigma_samples[i, :]) for i in range(len(mu_init))])
+        crps_mean = crps_samples.mean(axis=1)
+        crps_std = crps_samples.std(axis=1)
+        crps_upper = crps_mean + 2 * crps_std
+        crps_lower = crps_mean - 2 * crps_std
+        # crpsg = [crps_gaussian(np.random.normal(obs_example[i], obs_example[i]*0.1, 1000), mu_samples[i, :].mean(), sigma_samples[i, :].mean()) for i in range(mu_samples.shape[0])]
+        # crpsg = np.array(crpsg)
+        # plt.hist(crpsg)
+        # threshold = np.array([np.quantile(crpsg[i,:], 0.05) for i in range(crpsg.shape[0])])
+
         threshold = 0.025
 
-    elif fh_metric == 'rmse':
-        # Set a fixed threshold value for Root Mean Squared Error (RMSE)
-        threshold = 0.025
+        plt.figure(figsize=(7, 5))
+        plt.plot(crps_mean, linestyle='-', color='black')
+        plt.plot(crps_upper, linestyle='-', linewidth=0.6, color='green')
+        plt.plot(crps_lower, linestyle='-', linewidth=0.6, color='green')
+        plt.hlines(y=threshold, xmin=0, xmax=len(crps_mean), colors='blue', linestyles='--')
+        plt.tight_layout()
+        plt.savefig(os.path.join(dir, 'crps.pdf'))
+        plt.close()
 
-    return threshold
+        def get_horizon(value, threshold):
+            if np.any(value > threshold):
+                return np.argmax(value > threshold)
+            else:
+                return len(value)
 
-def forecast_skill_horizon(performance, performance_ref, fh_metric, tolerance=0.05):
-    """
-    Determine the forecast skill horizon (FSH) based on performance metrics.
+        h_mean = get_horizon(crps_mean, threshold)
+        h_upper = get_horizon(crps_upper, threshold)
+        h_lower = get_horizon(crps_lower, threshold)
 
-    Parameters:
-    - performance (numpy.ndarray): Performance scores for the current forecast.
-    - performance_ref (numpy.ndarray): Reference performance scores for a benchmark or ideal forecast.
-    - fh_metric (str): The forecast evaluation metric used.
-    - tolerance (float): The tolerance level to determine when FSH is reached.
+        print('Forecast horizon with uncertainties:', h_mean, h_upper, h_lower)
+        horizons = [h_mean, h_upper, h_lower]
 
-    Returns:
-    - int: The FSH (Forecast Skill Horizon) indicating when performance surpasses the tolerance level.
-    - numpy.ndarray: Skill scores representing the difference between reference and current performance.
-    """
+        return  {'horizons': h_mean,
+                 'metrics':{'mean':crps_mean, 'mean_sd':crps_std, 'upper':crps_upper, 'lower':crps_lower},
+                 'thresholds': threshold}
 
-    # Calculate the skill as the difference between reference and current performance
-    skill = performance_ref - performance
+def crps_skill_horizon(obs, preds, ref, interval, dir = ''):
 
-    # Check the selected forecast evaluation metric to determine FSH
-    if fh_metric in ["crps", "mae", "mse", "rmse", "fstats"]:
-        reached_fsh = skill < -tolerance
-    else:
-        raise ValueError(f"Unsupported forecast evaluation metric: {fh_metric}. Supported metrics are {', '.join(['crps', 'mae', 'mse', 'rmse', 'fstats'])}.")
+        out_ricker = crps_horizon(obs, preds, dir)
+        out_reference = crps_horizon(obs, ref, dir)
 
-    # Find the FSH by identifying the index where the skill surpasses the tolerance level
-    if reached_fsh.any():
-        fsh = np.argmax(reached_fsh)
-    else:
-        fsh = len(reached_fsh)
+        mean_skill = out_ricker['metrics']['mean'] / out_reference['metrics']['mean']
 
-    return fsh, skill
+        mean_skill_sigmaAB = np.corrcoef(out_ricker['metrics']['mean'], out_reference['metrics']['mean'])[0, 1] * out_ricker['metrics']['mean_sd'] * out_reference['metrics']['mean_sd']
+        skill_sd = mean_skill**2*((out_ricker['metrics']['mean_sd']/out_ricker['metrics']['mean'])**2 + (out_reference['metrics']['mean_sd']/out_reference['metrics']['mean'])**2) - 2*mean_skill_sigmaAB/(out_ricker['metrics']['mean']*out_reference['metrics']['mean'])
 
-def forecast_horizon(performance, fh_metric, threshold):
-    """
-        Determine the forecast horizon (FH) based on performance metrics and a threshold.
+        upper_skill = mean_skill + 2*skill_sd
+        lower_skill = mean_skill - 2*skill_sd
 
-        Parameters:
-        - performance (numpy.ndarray): Performance scores for the current forecast.
-        - fh_metric (str): The forecast evaluation metric used.
-        - threshold (float): The threshold value to determine when FH is reached.
+        threshold = 1
 
-        Returns:
-        - int: The FH (Forecast Horizon) indicating when performance surpasses the threshold.
-    """
+        plt.figure(figsize=(7, 5))
+        plt.plot(mean_skill, linestyle='-', color='black')
+        plt.plot(upper_skill, linestyle='-', linewidth=0.6, color='green')
+        plt.plot(lower_skill, linestyle='-', linewidth=0.6, color='green')
+        plt.hlines(y=threshold, xmin=0, xmax=len(mean_skill), colors='blue', linestyles='--')
+        plt.tight_layout()
+        plt.savefig(os.path.join(dir, 'crps_skill.pdf'))
+        plt.close()
+        def get_horizon(value, threshold, interval):
+            if np.any(value < threshold):
+                if interval == 1:
+                    if np.argmax(value < threshold) <= 1:
+                        return np.argmax(value[1:] < threshold)
+                    else:
+                        return np.argmax(value < threshold)
+                else:
+                    threshold_reached = value < threshold
+                    # Define a kernel for convolution (moving window of size 3)
+                    kernel = np.ones(interval)
+                    # Use convolution to sum up elements in the moving window
+                    result = np.convolve(threshold_reached.astype(int), kernel, mode='valid')
+                    return np.argmax(result == 3)
+            else:
+                return len(value)
 
-    # Check if the metric is "corr" (correlation), where a higher value is better
-    if fh_metric != "corr":
-        reached_fh = performance > threshold
-    else:
-        # only correlation is better if larger
-        reached_fh = performance < threshold
+        hmean = get_horizon(mean_skill, threshold, interval=1)
+        hupper = get_horizon(upper_skill, threshold, interval=1)
+        hlower = get_horizon(lower_skill, threshold, interval=1)
 
-    # Find the FH by identifying the index where the performance surpasses the threshold
-    if reached_fh.any():
-        fh = np.argmax(reached_fh)
-    else:
-        fh = len(reached_fh)
+        hmean_interval = get_horizon(mean_skill, threshold, interval=interval)
+        hupper_interval = get_horizon(upper_skill, threshold, interval=interval)
+        hlower_interval = get_horizon(lower_skill, threshold, interval=interval)
 
-    return fh
+        print('Forecast skill horizon with uncertainties:', hmean, hupper, hlower)
+        horizons = [hmean, hupper, hlower]
+        interval_horizons = [hmean_interval, hupper_interval, hlower_interval]
 
-def get_fh(fh_metric, forecast, observation):
-    """
-    Compute the forecast horizon (FH) for a given forecast evaluation metric, forecast, and observation.
+        return {'horizons': hmean,
+                'metrics': {'mean':mean_skill, 'mean_sd':skill_sd, 'upper':upper_skill, 'lower':lower_skill},
+                'thresholds': threshold,
+                'interval_horizons':hmean_interval}
 
-    Parameters:
-    - fh_metric (str): The forecast evaluation metric to use.
-    - forecast (numpy.ndarray): The forecasted values.
-    - observation (numpy.ndarray): The observed values.
+class Experiment():
 
-    Returns:
-    - int: The FH (Forecast Horizon) indicating when the specified metric surpasses a threshold.
-    """
+    def __init__(self, obs, preds, ref, dir = ''):
 
-    # Calculate performance scores for the specified metric
-    performance = pointwise_evaluation(forecast, observation, fh_metric=fh_metric, w=5)
+        self.obs = obs
+        self.preds = preds
+        self.ref = ref
+        self.dir = dir
 
-    # Set a threshold for the specified metric
-    threshold = set_threshold(fh_metric, forecast=forecast, observation=observation, w=5, alpha=0.05)
+        create_scenario_folder(dir, new_folder_name='actual_ricker')
+        create_scenario_folder(dir, new_folder_name='actual_reference')
+        create_scenario_folder(dir, new_folder_name='intrinsic_ricker')
+        create_scenario_folder(dir, new_folder_name='intrinsic_reference')
 
-    # Determine the forecast horizon based on the performance and threshold
-    fh = forecast_horizon(performance, fh_metric, threshold)
+    def compute_horizons(self):
+        def call_horizon_functions(y, yhat, type, dir=''):
 
-    return fh
+            h_correlation = correlation_based_horizon(y, yhat, spin_up=3, dir=os.path.join(dir, type))
+            h_anomaly = anomaly_quantile_horizon(y, yhat, dir=os.path.join(dir, type))
+            h_fstat = cumulative_fstatistics_horizon(y, yhat, spin_up=2, dir=os.path.join(dir, type))
+            h_crps = crps_horizon(y, yhat, dir=os.path.join(dir, type))
+
+            return {'correlation': h_correlation,
+                    'anomaly': h_anomaly,
+                    'fstat': h_fstat,
+                    'crps': h_crps}
+
+        self.actual_ricker = call_horizon_functions(self.obs, self.preds, type = 'actual_ricker', dir = self.dir)
+        self.actual_reference = call_horizon_functions(self.obs, self.ref, type = 'actual_reference', dir = self.dir)
+        self.intrinsic_ricker = call_horizon_functions(self.preds.mean(axis=0), self.preds,
+                                                       type = 'intrinsic_ricker', dir = self.dir)
+        self.intrinsic_reference = call_horizon_functions(self.ref.mean(axis=0), self.ref,
+                                                          type = 'intrinsic_reference', dir = self.dir)
+        self.skill_ricker = crps_skill_horizon(self.obs, self.preds, self.ref, interval=5, dir = self.dir)
+
+    def assemble_horizons(self, interval = 1):
+        def extract_horizons(h_correlation, h_anomaly, h_fstat, h_crps):
+            horizons = [h_correlation['horizons'],
+                        h_anomaly['horizons'],
+                        h_fstat['horizons'],
+                        h_crps['horizons']]
+
+            return horizons
+
+        if interval == 1:
+            skill_horizon = self.skill_ricker['horizons']
+        else:
+            skill_horizon = self.skill_ricker['interval_horizons']
+
+        self.horizons = [extract_horizons(self.actual_ricker['correlation'],
+                                               self.actual_ricker['anomaly'],
+                                               self.actual_ricker['fstat'],
+                                               self.actual_ricker['crps']),
+                         extract_horizons(self.intrinsic_ricker['correlation'],
+                                               self.intrinsic_ricker['anomaly'],
+                                               self.intrinsic_ricker['fstat'],
+                                               self.intrinsic_ricker['crps']),
+                         extract_horizons(self.actual_reference['correlation'],
+                                               self.actual_reference['anomaly'],
+                                               self.actual_reference['fstat'],
+                                               self.actual_reference['crps']),
+                         extract_horizons(self.intrinsic_reference['correlation'],
+                                               self.intrinsic_reference['anomaly'],
+                                               self.intrinsic_reference['fstat'],
+                                               self.intrinsic_reference['crps']),
+                         [None, None, None, skill_horizon]]
+
+    def assemble_thresholds(self, full = True):
+
+        def extract_thresholds(h_correlation, h_anomaly, h_fstat, h_crps):
+            thresholds = [h_correlation['thresholds'],
+                        h_anomaly['thresholds'],
+                        (h_fstat['thresholds'] if full else np.mean(h_fstat['thresholds'])),
+                        h_crps['thresholds']]
+
+            return thresholds
+
+        self.thresholds = {'actual_ricker':extract_thresholds(self.actual_ricker['correlation'],
+                                               self.actual_ricker['anomaly'],
+                                               self.actual_ricker['fstat'],
+                                               self.actual_ricker['crps']),
+                         'intrinsic_ricker':extract_thresholds(self.intrinsic_ricker['correlation'],
+                                               self.intrinsic_ricker['anomaly'],
+                                               self.intrinsic_ricker['fstat'],
+                                               self.intrinsic_ricker['crps']),
+                         'actual_reference':extract_thresholds(self.actual_reference['correlation'],
+                                               self.actual_reference['anomaly'],
+                                               self.actual_reference['fstat'],
+                                               self.actual_reference['crps']),
+                         'intrinsic_reference':extract_thresholds(self.intrinsic_reference['correlation'],
+                                               self.intrinsic_reference['anomaly'],
+                                               self.intrinsic_reference['fstat'],
+                                               self.intrinsic_reference['crps']),
+                         'skill':[None, None, None, self.skill_ricker['thresholds']]}
+
+    def assemble_proficiency(self):
+
+        def extract_metrics(h_correlation, h_anomaly, h_fstat, h_crps):
+            metrics = [h_correlation['metrics'],
+                        h_anomaly['metrics'],
+                        h_fstat['metrics'],
+                        h_crps['metrics']]
+
+            return metrics
+
+        self.proficiencies = {'actual_ricker':extract_metrics(self.actual_ricker['correlation'],
+                                               self.actual_ricker['anomaly'],
+                                               self.actual_ricker['fstat'],
+                                               self.actual_ricker['crps']),
+                         'intrinsic_ricker':extract_metrics(self.intrinsic_ricker['correlation'],
+                                               self.intrinsic_ricker['anomaly'],
+                                               self.intrinsic_ricker['fstat'],
+                                               self.intrinsic_ricker['crps']),
+                         'actual_reference':extract_metrics(self.actual_reference['correlation'],
+                                               self.actual_reference['anomaly'],
+                                               self.actual_reference['fstat'],
+                                               self.actual_reference['crps']),
+                         'intrinsic_reference':extract_metrics(self.intrinsic_reference['correlation'],
+                                               self.intrinsic_reference['anomaly'],
+                                               self.intrinsic_reference['fstat'],
+                                               self.intrinsic_reference['crps']),
+                         'skill':[None, None, None, self.skill_ricker['metrics']]}
+
+    def plot_assembled_proficiencies(self, type, color_mean = '#8B7355',color_sd = '#CDAA7D'):
+
+        proficiencies = self.proficiencies[type]
+        correlation_mean = proficiencies[0]['mean']
+        correlation_upper = proficiencies[0]['upper']
+        correlation_lower = proficiencies[0]['lower']
+        anomaly_mean = proficiencies[1]['mean']
+        anomaly_upper = proficiencies[1]['upper']
+        anomaly_lower = proficiencies[1]['lower']
+        fstat_mean = proficiencies[2]['mean']
+        fstat_upper = proficiencies[2]['upper']
+        fstat_lower = proficiencies[2]['lower']
+        crps_mean = proficiencies[3]['mean']
+        crps_upper = proficiencies[3]['upper']
+        crps_lower = proficiencies[3]['lower']
+
+        fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(5,1, figsize=(8, 8), sharex=True, gridspec_kw={'height_ratios': [4,1,1,1,1]})
+        ref = ax1.plot(np.transpose(self.ref), color='gray', label = 'Long-term\n Mean', zorder=0)
+        obs = ax1.plot(np.transpose(self.obs), color='magenta', label='Observed', zorder=1)
+        fit = ax1.fill_between(np.arange(self.preds.shape[1]), self.preds.transpose().min(axis=1),
+                              self.preds.transpose().max(axis=1), color='b', alpha=0.4)
+        fit_mean = ax1.plot(self.preds.transpose().mean(axis=1), color='b', alpha=0.5, label='Ricker')
+        plt.setp(ref[1:], label="_")
+        #plt.setp(fit_mean[1:], label="_")
+        plt.setp(obs[1:], label="_")
+        ax1.legend()
+        ax1.set_ylabel('Relative size', weight='bold')
+        ax1.yaxis.set_label_coords(-0.1, 0.5)
+        ax2.plot(anomaly_mean, linestyle='-', color=color_mean)
+        ax2.plot(anomaly_upper, linestyle='-', linewidth=0.9, color=color_sd)
+        ax2.plot(anomaly_lower, linestyle='-', linewidth=0.9, color=color_sd)
+        ax2.hlines(y=self.thresholds[type][1], xmin=0, xmax=len(correlation_mean), color='black',linewidth=0.8, linestyle='--')
+        ax2.hlines(y=-self.thresholds[type][1], xmin=0, xmax=len(correlation_mean), color='black',linewidth=0.8, linestyle='--')
+        ax2.set_ylabel('Anom', weight='bold')
+        ax2.yaxis.set_label_coords(-0.1, 0.5)
+        ax3.plot(correlation_mean, linestyle='-', color=color_mean)
+        ax3.plot(correlation_upper, linestyle='-', linewidth=1, color=color_sd)
+        ax3.plot(correlation_lower, linestyle='-', linewidth=1, color=color_sd)
+        ax3.hlines(y=self.thresholds[type][0], xmin=0, xmax=len(correlation_mean), color='black',linewidth=0.8, linestyle='--')
+        ax3.set_ylabel('Corr',  weight='bold')
+        ax3.yaxis.set_label_coords(-0.1, 0.5)
+        ax4.plot(fstat_mean[1:], linestyle='-', color=color_mean)
+        ax4.plot(fstat_upper[1:], linestyle='-', linewidth=1, color=color_sd)
+        ax4.plot(fstat_lower[1:], linestyle='-', linewidth=1, color=color_sd)
+        ax4.plot(self.thresholds[type][2][1:], color='black',linewidth=0.8, linestyle='--')
+        ax4.set_ylabel('F-Stat',  weight='bold')
+        ax4.yaxis.set_label_coords(-0.1, 0.5)
+        ax5.plot(crps_mean[1:], linestyle='-', color=color_mean)
+        ax5.plot(crps_upper[1:], linestyle='-', linewidth=1, color=color_sd)
+        ax5.plot(crps_lower[1:], linestyle='-', linewidth=1, color=color_sd)
+        ax5.hlines(y=self.thresholds[type][3], xmin=0, xmax=len(correlation_mean), color='black',linewidth=0.8, linestyle='--')
+        ax5.set_ylabel('CRPS', weight='bold')
+        ax5.set_xlabel('Time [Generation]', weight='bold')
+        ax5.yaxis.set_label_coords(-0.1, 0.5)
+        plt.tight_layout()
+        plt.subplots_adjust(hspace=0.13)  # You can adjust the value as needed
+        plt.show()
+        plt.savefig(os.path.join(os.path.join(self.dir, type), 'assembled_proficiencies.pdf'))
+        plt.close()
+
+    def make_plots(self):
+
+        self.assemble_proficiency()
+        self.assemble_thresholds()
+
+        self.plot_assembled_proficiencies(type = 'actual_ricker')
+        self.plot_assembled_proficiencies(type = 'intrinsic_ricker')
+        self.plot_assembled_proficiencies(type = 'actual_reference')
+        self.plot_assembled_proficiencies(type = 'intrinsic_reference')
 
 
-def get_fsh(forecast, reference, obs, fh_metric):
-    """
-    Calculate the Forecast Skill Horizon (FSH) based on forecast performance and reference performance.
-
-    Parameters:
-    - forecast (numpy.ndarray): The forecasted values to be evaluated.
-    - reference (numpy.ndarray): The reference forecasted values (e.g., ideal or benchmark forecasts).
-    - obs (numpy.ndarray): The observed values.
-    - fh_metric (str): The forecast evaluation metric to use.
-
-    Returns:
-    - int: The FSH (Forecast Skill Horizon) indicating when the forecast skill surpasses a tolerance level.
-    - numpy.ndarray: Skill scores representing the difference between reference and forecast performance.
-    """
-
-    # Calculate performance scores for the forecast and reference forecast
-    performance_forecast = pointwise_evaluation(forecast, obs, fh_metric=fh_metric)
-    performance_reference = pointwise_evaluation(reference, obs, fh_metric=fh_metric)
-
-    # Calculate the FSH and skill scores based on the two sets of performance scores
-    fsh, skill = forecast_skill_horizon(performance_forecast, performance_reference, fh_metric=fh_metric)
-
-    return fsh, skill
-
-def get_forecast_horizons(compute_horizons, y_test, climatology, forecast, dir):
-    """
-    Calculate and save forecast horizons based on different performance metrics, or load them if already computed.
-
-    Parameters:
-    - compute_horizons (bool): Whether to compute forecast horizons or load them.
-    - y_test (torch.Tensor): Observed values.
-    - climatology (torch.Tensor): Climatology reference values.
-    - forecast (numpy.ndarray): The forecasted values.
-    - dir (str): The directory for saving/loading forecast horizons.
-
-    Returns:
-    - pd.DataFrame: DataFrame containing forecast horizons for various metrics.
-    - list: List of metrics used for calculating forecast horizons.
-    """
-
-    # Convert tensors to numpy arrays
-    observation = y_test.detach().numpy()[np.newaxis, :]
-    reference = climatology.detach().numpy()
-    reference2 = np.tile(reference[:, -1], (reference.shape[1], 1)).transpose()
-    obs_perfect = np.mean(forecast, axis=0)[np.newaxis, :]
-    ref_perfect = np.mean(reference, axis=0)[np.newaxis, :]
-
-    if compute_horizons:
-        print(f'Computing forecast horizons and saving in {dir}')
-        metrics_fh = ['corr', 'mae', 'fstats', 'crps']
-
-        # Calculate forecast horizons for various metrics
-        fha_ricker = [get_fh(metric, forecast, observation) for metric in metrics_fh]
-        fhp_ricker = [get_fh(metric, forecast, obs_perfect) for metric in metrics_fh]
-        fha_reference = [get_fh(metric, reference, observation) for metric in metrics_fh]
-        fhp_reference = [get_fh(metric, reference, ref_perfect) for metric in metrics_fh]
-
-        metrics_fsh = ['crps']
-        fsh = [None, None, None] + [get_fsh(forecast, reference, observation, fh_metric=m)[0] for m in metrics_fsh]
-        fsh2 = [None, None, None] + [get_fsh(forecast, reference2, observation, fh_metric=m)[0] for m in metrics_fsh]
-
-        # Create a DataFrame to store forecast horizons
-        fhs = pd.DataFrame([fha_ricker, fhp_ricker, fha_reference, fhp_reference, fsh], columns=metrics_fh,
-                           index=['fha_ricker', 'fhp_ricker', 'fha_reference', 'fhp_reference', 'fsh'])
-        # Save the DataFrame to a CSV file
-        fhs.to_csv(os.path.join(dir, 'horizons.csv'))
-
-    else:
-        print(f'LOADING forecast horizons from {dir}')
-        metrics_fh = ['corr', 'mae', 'fstats', 'crps']
-        # Load the DataFrame with forecast horizons from a CSV file
-        fhs = pd.read_csv(os.path.join(dir, 'horizons.csv'), index_col=0)
-
-    return fhs, metrics_fh
-
-
-def forecast_different_leads(y_test, x_test, climatology, modelfits, forecast_days = 110, lead_time = 110):
-
-    data = ForecastData(y_test, x_test, climatology, forecast_days=forecast_days, lead_time=lead_time)
-    forecastloader = DataLoader(data, batch_size=1, shuffle=False, drop_last=True)
-
-    mat_ricker = np.full((lead_time, forecast_days), np.nan)
-    mat_ricker_perfect = np.full((lead_time, forecast_days), np.nan)
-    mat_climatology = np.full((lead_time, forecast_days), np.nan)
-    mat_climatology_perfect = np.full((lead_time, forecast_days), np.nan)
-
-    i = 0
-    fh_metric = 'crps'
-    for states, temps, clim in forecastloader:
-
-        print('I is: ', i)
-        N0 = states[:, 0]
-        clim = clim.squeeze().detach().numpy()
-        forecast = []
-        for modelfit in modelfits:
-            forecast.append(modelfit.forecast(N0, temps).detach().numpy())
-        forecast = np.array(forecast).squeeze()
-        states = states.squeeze().detach().numpy()
-
-        if fh_metric == 'crps':
-            performance = [CRPS(forecast[:, i], states[i]).compute()[0] for i in range(forecast.shape[1])]
-            performance_ref = [CRPS(clim[:, i], states[i]).compute()[0] for i in range(clim.shape[1])]
-            mat_ricker[:, i] = performance
-            mat_climatology[:, i] = performance_ref
-
-            performance_perfect = [CRPS(forecast[:, i], forecast[:, i].mean(axis=0)).compute()[0] for i in
-                                   range(forecast.shape[1])]
-            performance_climatology_perfect = [CRPS(clim[:, i], forecast[:, i].mean(axis=0)).compute()[0] for i in
-                                               range(forecast.shape[1])]
-            mat_ricker_perfect[:, i] = performance_perfect
-            mat_climatology_perfect[:, i] = performance_climatology_perfect
-
-        i += 1
-
-    return mat_ricker, mat_climatology, mat_ricker_perfect
-
-
-def mean_forecastskill(forecast_skill, threshold):
-
-    mean_skill = np.mean(forecast_skill, axis=0)
-    mean_fhs = np.array([i > threshold for i in mean_skill])
-    return mean_fhs, None, None
-
-def forecastskill_mean(forecast_skill, threshold):
-
-    fhs = np.array([i > threshold for i in forecast_skill])
-    fhs_mean = np.mean(fhs.astype(int), axis=0)  # for plotting
-    fhs_var = np.std(fhs.astype(int), axis=0)
-    return fhs_mean, fhs_var, fhs
 
 # Quantile Horizon
 def efh_quantile(metric, accepted_error, actual_error, timesteps, quantiles = (0.01, 0.99), ps = False):

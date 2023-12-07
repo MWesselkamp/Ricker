@@ -1,4 +1,4 @@
-import fit_torch as ft
+import calibration as ft
 import sympy as sp
 import numpy as np
 import os
@@ -13,17 +13,23 @@ from utils import create_scenario_folder
 
 process = 'deterministic'
 scenario = 'chaotic'
-experiment_path = 'results/version_230907_1221'
-scenario_path = create_scenario_folder(experiment_path, f'{scenario}_{process}_SI')
+experiment_path = 'results/version_230908_1004'
+scenario_path = create_scenario_folder(experiment_path, f'{scenario}_{process}_SI2')
 
 observation_params, initial_params, true_noise, initial_noise = ft.set_parameters(process=process, scenario=scenario,
                                                                                       dir = scenario_path)
+#observation_params = [1.18, 1, -0.03, 0.41, 0.25, 1.16, 1, -0.13, 0.62, 0.32]
+#dyn_observed, temperature = ft.create_observations(years=1,
+#                                    observation_params=observation_params,
+#                                    true_noise=0.0, full_dynamics=True)
+#baseplot(dyn_observed.transpose()[:, 0], dyn_observed.transpose()[:, 1])
 
 y_train, y_test, sigma_train, sigma_test, x_train, x_test, climatology = ft.create_observations(years=30,
                                                                                                  observation_params=observation_params,
                                                                                                  true_noise=true_noise)
 
-fitted_values = ft.model_fit(False, os.path.join(experiment_path, f'{scenario}_{process}'),
+
+fitted_values = ft.model_fit(False, os.path.join(experiment_path, f'{process}_{scenario}'),
                              y_train, x_train, sigma_train, initial_params, initial_noise,
                              samples=1, epochs=15, loss_fun='mse', step_length=10)
 parameter_samples = ft.get_parameter_samples(fitted_values, uncertainty=0.02)
@@ -69,12 +75,31 @@ def two_species_lyapunov(dyn_obs, temp, par_values, start, timesteps):
 
     return(lyapunov)
 
-start = 80
-timesteps = 130
-dyn_obs = dyn_observed.transpose()[start:timesteps]
-temp = temperature[start:timesteps]
-l = two_species_lyapunov(dyn_obs, temp, tuple(observation_params), start, timesteps)
+l1 = []
+l2 = []
+timesteps1 = 130
+timesteps2 = 110
+for i in range(timesteps1):
+    start = i
+    dyn_obs = dyn_observed.transpose()[start:timesteps1]
+    temp = temperature[start:timesteps1]
+    l1.append(two_species_lyapunov(dyn_obs, temp, tuple(observation_params), start, timesteps1))
 
+for i in range(timesteps2):
+    start = i
+    dyn_obs = dyn_observed.transpose()[start:timesteps2]
+    temp = temperature[start:timesteps2]
+    l2.append(two_species_lyapunov(dyn_obs, temp, tuple(observation_params), start, timesteps2))
+
+
+plt.plot(np.arange(timesteps1), l1, color='red')
+plt.plot(np.arange(timesteps2), l2, color='blue')
+plt.hlines(y = 0, xmin=0, xmax=timesteps1, colors='black', linestyles='--')
+plt.ylim(min(l1), 0.05)
+plt.xlabel('Time of forecast initialization')
+plt.ylabel('Lyapunov')
+plt.tight_layout()
+plt.savefig(os.path.join(scenario_path, 'lyapunov.pdf'))
 #=============#
 # Get Lyapunov #
 #=============#

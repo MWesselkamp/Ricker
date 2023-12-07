@@ -102,17 +102,17 @@ def add_identity(axes, *line_args, **line_kwargs):
     axes.callbacks.connect('ylim_changed', callback)
     return axes
 
-def simulate_temperature(timesteps, add_trend=False, add_noise=False):
+def simulate_temperature(timesteps, freq_s=365, add_trend=False, add_noise=False):
 
     x = np.arange(timesteps)
-    freq = timesteps / 365
+    freq = timesteps / freq_s
     y = np.sin(2 * np.pi * freq * (x / timesteps))
 
     if add_trend:
         y = y + np.linspace(0, 0.1, timesteps)
 
     if add_noise:
-        y = np.random.normal(y, 0.2)
+        y = np.random.normal(y, 0.1)
     y = np.round(y, 4)
 
     return y
