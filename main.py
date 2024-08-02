@@ -60,6 +60,7 @@ if __name__ == "__main__":
     anomalies = {}
 
     for s in scenario_folders:
+
         obs = observation[s]
         preds = prediction[s]
         ref = reference[s]

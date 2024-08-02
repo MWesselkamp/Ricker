@@ -14,9 +14,4 @@ forecast.py - contains dirty functions used in main to run full experiment.
 main.py - run of this script creates version folder in results that contains experiment under four different simulation scenarios: determinstic/stochastic, chaotic/nonchaotic. 
 Summary of simulated dynamics plot will look similar to:
 
-![Examplary dynamics](results/version_240802_1102/dynamics_all.jpg)
-
-
-
-
-
+![dynamics_all.jpg](figures/dynamics_all.jpg)

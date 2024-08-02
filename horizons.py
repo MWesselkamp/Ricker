@@ -3,16 +3,18 @@ plt.rcParams['font.size'] = 18
 import numpy as np
 import os
 import random
+import scipy
 
+from scipy.stats import t, f
+from metrics import anomaly, variance_standard_error, t_statistic_two_samples
+from metrics import rolling_corrs, tstat_inverse, correlation_standard_error
 from utils import create_scenario_folder
+from properscoring import crps_gaussian
 
 random.seed(42)
 np.random.seed(42)
 
 def correlation_based_horizon(obs, preds, spin_up = 3, dir=''):
-
-        from metrics import rolling_corrs, tstat_inverse, correlation_standard_error
-        import scipy
 
         # Compute rolling correlations
         c = rolling_corrs(obs.reshape(1,len(obs)), preds, window=10)
@@ -56,8 +58,6 @@ def correlation_based_horizon(obs, preds, spin_up = 3, dir=''):
                 'thresholds': threshold}
 
 def anomaly_quantile_horizon(obs, preds, dir = ''):
-
-        from metrics import anomaly
 
         an = anomaly(obs, preds)
         an_mean = np.mean(an, axis=0)
@@ -141,9 +141,6 @@ def anomaly_quantile_skill_horizon(obs, preds, ref):
 
 def cumulative_fstatistics_skill_horizon(obs, preds, ref, spin_up = 5, dir = ''):
 
-        from scipy.stats import f
-        from metrics import anomaly, variance_standard_error
-
         an_preds = anomaly(obs, preds)
         an_ref = anomaly(obs, ref)
 
@@ -208,9 +205,6 @@ def cumulative_fstatistics_skill_horizon(obs, preds, ref, spin_up = 5, dir = '')
         plt.close()
 
 def cumulative_fstatistics_horizon(obs, preds, spin_up = 1, interval = 1, dir = ''):
-
-        from scipy.stats import f
-        from metrics import anomaly, variance_standard_error
 
         an = anomaly(obs, preds)
 
@@ -299,55 +293,86 @@ def cumulative_fstatistics_horizon(obs, preds, spin_up = 1, interval = 1, dir = 
                 'thresholds': thresholds,
                 'additionals': {'anomaly': an,'var_within':var_within,'var_total':var_total} }
 
-def cumulative_tstatistics_skill_horizon(obs, preds, ref, spin_up = 10, dir = ''):
 
-        from scipy.stats import t
-        from metrics import anomaly, variance_standard_error, t_statistic_two_samples
+def cumulative_tstatistics_skill_horizon(obs, preds, ref, spin_up=10, dir=''):
+    """
+    Calculate the cumulative T-statistics skill horizon.
 
-        an_preds = anomaly(obs, preds)
-        an_ref = anomaly(obs, ref)
+    Parameters:
+    obs (np.ndarray): Observed data.
+    preds (np.ndarray): Predicted data.
+    ref (np.ndarray): Reference data.
+    spin_up (int): Spin-up period.
+    dir (str): Directory to save the plot.
 
-        # Compute within time step variance of anomalies
-        # we skip the first step here because we cannot compute the variance of a single value with the total variance
-        t_stat = np.array([t_statistic_two_samples(an_preds[:, (i-spin_up):i], an_ref[:,(i-spin_up):i], omega_0=0.0) for i in range(spin_up, an_preds.shape[1])])
+    Returns:
+    dict: A dictionary containing horizons, mean T-statistics, and thresholds.
+    """
 
-        df = an_preds.shape[0]*spin_up + an_ref.shape[0]*spin_up - 2
-        # Calculate critical t-value
-        threshold = t.ppf(1 - 0.5 * 0.05, df)
+    def get_horizon(t_stat, threshold):
+        """
+        Determine the forecast horizon based on the T-statistics and threshold.
 
-        fig, (ax1, ax2) = plt.subplots(nrows=2, figsize=(8, 6))
-        ax1.plot(an_preds.T[:, (spin_up - 1):], linestyle='-', color='purple', alpha=0.6)
-        ax1.plot(an_ref.T[:, (spin_up - 1):], linestyle='-', color='magenta', alpha=0.3)
-        ax1.set_ylabel('Anomaly')
-        ax1.legend(loc='upper right')
-        ax2.plot(t_stat, linestyle='-', color='black')
-        ax2.hlines(threshold,xmin=0, xmax= len(t_stat), linestyle='-', linewidth=1.1, color='blue', label='threshold')
-        ax2.set_ylabel('T-statistic')
-        ax2.set_xlabel('Forecast time')
-        plt.tight_layout()
-        plt.savefig(os.path.join(dir, 'tstats.pdf'))
-        plt.close()
+        Parameters:
+        t_stat (np.ndarray): Array of T-statistics.
+        threshold (float): T-statistic threshold value.
 
-        # Get forecast horizon
-        def get_horizon(value, threshold):
-            if np.any(np.abs(value) > threshold):
-                return np.argmax(np.abs(value) > threshold)
-            else:
-                return len(value)
+        Returns:
+        int: Forecast horizon.
+        """
+        if np.any(np.abs(t_stat) > threshold):
+            return np.argmax(np.abs(t_stat) > threshold)
+        return len(t_stat)
 
-        h_mean = get_horizon(t_stat, threshold)
+    # Calculate anomalies
+    an_preds = anomaly(obs, preds)
+    an_ref = anomaly(obs, ref)
 
-        print('Tstatistics forecast horizon:', h_mean)
+    # Compute T-statistics for each time step
+    t_stat = np.array([
+        t_statistic_two_samples(an_preds[:, (i - spin_up):i], an_ref[:, (i - spin_up):i], omega_0=0.0)
+        for i in range(spin_up, an_preds.shape[1])
+    ])
 
-        return {'horizons': h_mean,
-                'metrics': {'mean':t_stat},
-                'thresholds':threshold}
+    # Degrees of freedom
+    df = an_preds.shape[0] * spin_up + an_ref.shape[0] * spin_up - 2
+
+    # Calculate critical T-value
+    threshold = t.ppf(1 - 0.5 * 0.05, df)
+
+    # Plotting
+    fig, (ax1, ax2) = plt.subplots(nrows=2, figsize=(8, 6))
+
+    # Plot anomalies
+    ax1.plot(an_preds.T[:, (spin_up - 1):], linestyle='-', color='purple', alpha=0.6, label='Predicted Anomalies')
+    ax1.plot(an_ref.T[:, (spin_up - 1):], linestyle='-', color='magenta', alpha=0.3, label='Reference Anomalies')
+    ax1.set_ylabel('Anomaly')
+    ax1.legend(loc='upper right')
+
+    # Plot T-statistics
+    ax2.plot(t_stat, linestyle='-', color='black')
+    ax2.axhline(threshold, xmin=0, xmax=len(t_stat), linestyle='-', linewidth=1.1, color='blue', label='Threshold')
+    ax2.set_ylabel('T-statistic')
+    ax2.set_xlabel('Forecast Time')
+    ax2.legend()
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(dir, 'tstats.pdf'))
+    plt.close()
+
+    # Calculate forecast horizon
+    h_mean = get_horizon(t_stat, threshold)
+
+    print('T-statistics forecast horizon:', h_mean)
+
+    return {
+        'horizons': h_mean,
+        'metrics': {'mean': t_stat},
+        'thresholds': threshold
+    }
 
 
 def fstatistics_horizon(obs, preds, dir=''):
-
-        from scipy.stats import f
-        from metrics import anomaly, variance_standard_error
 
         an = anomaly(obs, preds)
 
@@ -417,10 +442,6 @@ def fstatistics_horizon(obs, preds, dir=''):
 
 def crps_horizon(obs, preds, dir = ''):
 
-        from properscoring import crps_gaussian
-        from metrics import variance_standard_error
-
-        # Define the Gaussian function
 
         # Fit the Gaussian distribution to the data
         mu_init = np.array([np.mean(preds[:, i]) for i in range(len(preds[0, :]))])
