@@ -186,6 +186,76 @@ def plot_horizons(fhs, dir,all_fh_lower=None, all_fh_upper=None, n_metrics = 4, 
 
     plt.savefig(os.path.join(dir,f'horizons_{show_upper}_int{interval}.pdf'))
 
+
+    def plot_horizons_relative_change(fhs, dir, n_metrics=4, show_upper=380, interval=1):
+        plt.figure(figsize=(9, 6))
+        x_positions = np.arange(n_metrics)
+        x_labels = ['Corr', 'Anomaly', 'F-Stats', 'CRPS(S)']  # ['Corr', 'MSE', 'MAE', 'CRPS']
+        x_colors = ['gray', 'gray', 'silver', 'lightgray']
+        for i in range(len(x_positions)):
+            plt.axvspan(x_positions[i] - 0.5, x_positions[i] + 1 - 0.5, facecolor=x_colors[i], alpha=0.5)
+        plt.hlines(xmin=min(x_positions) - 0.5, xmax=max(x_positions) + 0.5, y=0, linestyles='--', colors='black',
+                   linewidth=0.5)
+        plt.quiver(x_positions - 0.2, np.zeros_like(x_positions), np.zeros_like(x_positions), fhs.loc['fha_ricker'].to_numpy(), color='blue',
+                    label='$h_{Ricker}$',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+        plt.quiver(x_positions,np.zeros_like(x_positions), np.zeros_like(x_positions), fhs.loc['fha_reference'].to_numpy(),  color='green',
+                    label='$h_{Climatology}$ ',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+        plt.quiver(x_positions - 0.2, np.zeros_like(x_positions), np.zeros_like(x_positions),fhs.loc['fhp_ricker'].to_numpy(),
+                    color='lightblue', label='$\hat{h}_{Ricker}$',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+        plt.quiver(x_positions,np.zeros_like(x_positions), np.zeros_like(x_positions), fhs.loc['fhp_reference'].to_numpy(),
+                    color='lightgreen', label='$\hat{h}_{Climatology}$',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+        plt.quiver(x_positions + 0.2,np.zeros_like(x_positions), np.zeros_like(x_positions), fhs.loc['fsh'].to_numpy(),
+                   color='red',
+                   label='$h_{skill}$',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+        plt.ylabel('Relative change', fontweight='bold')
+        plt.xlabel('Proficiency', fontweight='bold')
+        plt.xticks(x_positions, x_labels)
+        plt.ylim((-80,80))
+        plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+        plt.tight_layout()
+
+        plt.savefig(os.path.join(dir, f'horizons_relative_change.pdf'))
+
+def plot_horizons_relative_change(fhs, dir, n_metrics=4, show_upper=380, interval=1):
+
+    plt.figure(figsize=(9, 6))
+    x_positions = np.arange(n_metrics)
+    x_labels = ['Corr', 'Anomaly', 'F-Stats', 'CRPS(S)']  # ['Corr', 'MSE', 'MAE', 'CRPS']
+    x_colors = ['gray', 'gray', 'silver', 'lightgray']
+    for i in range(len(x_positions)):
+        plt.axvspan(x_positions[i] - 0.5, x_positions[i] + 1 - 0.5, facecolor=x_colors[i], alpha=0.5)
+    plt.hlines(xmin=min(x_positions) - 0.5, xmax=max(x_positions) + 0.5, y=0, linestyles='--', colors='black',
+                   linewidth=0.5)
+    plt.quiver(x_positions - 0.2, np.zeros_like(x_positions), np.zeros_like(x_positions), fhs.loc['fha_ricker'].to_numpy(), color='blue',
+                    label='$h_{Ricker}$',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+    plt.quiver(x_positions,np.zeros_like(x_positions), np.zeros_like(x_positions), fhs.loc['fha_reference'].to_numpy(),  color='green',
+                    label='$h_{Climatology}$ ',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+    plt.quiver(x_positions - 0.2, np.zeros_like(x_positions), np.zeros_like(x_positions),fhs.loc['fhp_ricker'].to_numpy(),
+                    color='lightblue', label='$\hat{h}_{Ricker}$',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+    plt.quiver(x_positions,np.zeros_like(x_positions), np.zeros_like(x_positions), fhs.loc['fhp_reference'].to_numpy(),
+                    color='lightgreen', label='$\hat{h}_{Climatology}$',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+    plt.quiver(x_positions + 0.2,np.zeros_like(x_positions), np.zeros_like(x_positions), fhs.loc['fsh'].to_numpy(),
+                   color='red',
+                   label='$h_{skill}$',scale_units='xy', angles='xy', scale=1,
+                   width=0.01, headlength=5, headwidth=6)
+    plt.ylabel('Relative change', fontweight='bold')
+    plt.xlabel('Proficiency', fontweight='bold')
+    plt.xticks(x_positions, x_labels)
+    plt.ylim((-80,80))
+    plt.legend(loc='upper left', bbox_to_anchor=(1, 1))
+    plt.tight_layout()
+
+    plt.savefig(os.path.join(dir, f'horizons_relative_change.pdf'))
+
 def plot_horizon_maps(mat_ricker, mat_climatology, mat_ricker_perfect, dir):
     fig, ax = plt.subplots(2, 3, figsize=(14, 9), sharey=False, sharex=False)
     custom_min = 0

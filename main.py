@@ -7,7 +7,7 @@ import random
 import pandas as pd
 
 from utils import create_experiment_folder, create_scenario_folder
-from visualisations import  plot_all_dynamics, plot_horizons
+from visualisations import  plot_all_dynamics, plot_horizons, plot_horizons_relative_change
 from forecast import create_experimental_data
 from itertools import product
 from horizons import Experiment
@@ -100,7 +100,14 @@ if __name__ == "__main__":
 
 
     directory_path = 'results'
-    experiment_path = os.path.join(directory_path, 'version_231206_1308')
+    experiment_path = os.path.join(directory_path, 'version_231207_1114')
 
     h_deterministic = pd.read_csv(os.path.join(experiment_path, 'chaotic_deterministic', 'horizons.csv'), index_col=0)
     h_stochastic = pd.read_csv(os.path.join(experiment_path, 'chaotic_stochastic', 'horizons.csv'), index_col=0)
+    relative_change = h_deterministic -h_stochastic
+
+    plot_horizons_relative_change(relative_change, dir=experiment_path, show_upper=120, interval=1)
+
+
+
+

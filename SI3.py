@@ -37,6 +37,6 @@ ax.set_zlabel('Z')
 ax.set_axis_off()
 # Show the plot
 plt.show()
-plt.savefig(os.path.join('results', 'titlepage.pdf'))
+plt.savefig(os.path.join('results', 'titlepage.pdf'), transparent=True)
 
 
